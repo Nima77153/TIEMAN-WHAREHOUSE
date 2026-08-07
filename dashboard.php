@@ -169,6 +169,8 @@ if ($overrides_query) {
 <head>
     <title>Warehouse System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome CDN added below -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
@@ -184,15 +186,35 @@ if ($overrides_query) {
 
 <div class="sidebar">
     <div class="logo">WAREHOUSE SYSTEM</div>
-    <a href="dashboard.php">🏠 Dashboard</a>
-    <a href="items/item_list.php">📦 Items</a>
-    <a href="items/add_item.php">➕ Add Item</a>
-    <a href="create_job.php">📝 Create Job</a>
-    <a href="items/stock_in.php">⬆️ Stock In</a>
-    <a href="items/stock_out.php">⬇️ Stock Out</a>
-    <a href="items/edit_item.php">✏️ Edit Item</a>
-    <a href="reports/stock_report.php">📊 Reports</a>
-    <a href="logout.php">🚪 Logout</a>
+    <div class="sidebar-menu">
+        <a href="dashboard.php">
+            <i class="fa-solid fa-gauge-high"></i> Dashboard
+        </a>
+        <a href="items/item_list.php">
+            <i class="fa-solid fa-box-archive"></i> Items
+        </a>
+        <a href="items/add_item.php">
+            <i class="fa-solid fa-plus"></i> Add Item
+        </a>
+        <a href="create_job.php">
+            <i class="fa-solid fa-file-circle-plus"></i> Create Job
+        </a>
+        <a href="items/stock_in.php">
+            <i class="fa-solid fa-arrow-trend-up"></i> Stock In
+        </a>
+        <a href="items/stock_out.php">
+            <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
+        </a>
+        <a href="items/edit_item.php">
+            <i class="fa-solid fa-pen-to-square"></i> Edit Item
+        </a>
+        <a href="reports/stock_report.php">
+            <i class="fa-solid fa-chart-pie"></i> Reports
+        </a>
+        <a href="logout.php">
+            <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </a>
+    </div>
 </div>
 
 <div class="topbar d-flex justify-content-between align-items-center">
