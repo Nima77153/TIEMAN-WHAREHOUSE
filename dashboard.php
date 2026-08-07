@@ -186,7 +186,7 @@ if ($overrides_query) {
 <div class="sidebar">
     <div class="logo">WAREHOUSE SYSTEM</div>
     <a href="dashboard.php">🏠 Dashboard</a>
-    <a href="https://tieman-wharehouse-1.onrender.com//items/item_list.php">📦 Items</a>
+    <a href="items/item_list.php">📦 Items</a>
     <a href="items/add_item.php">➕ Add Item</a>
     <a href="import_excel.php">📥 Import Excel</a>
     <a href="create_job.php">📋 Create Job</a>
