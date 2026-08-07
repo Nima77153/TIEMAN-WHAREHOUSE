@@ -174,7 +174,65 @@ if ($overrides_query) {
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
+    <style>
+    /* Sidebar Container */
+.sidebar {
+    width: 240px;
+    background-color: #1a2232;
+    min-height: 100vh;
+}
 
+/* Header Logo */
+.sidebar .logo {
+    background-color: #ff6801; /* Orange Header */
+    color: #ffffff;
+    font-weight: bold;
+    font-size: 20px;
+    text-align: center;
+    padding: 18px 10px;
+    letter-spacing: 1px;
+}
+
+/* Menu Container */
+.sidebar-menu {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Base Links */
+.sidebar-menu a {
+    display: flex;
+    align-items: center;
+    padding: 14px 20px;
+    color: #c2c7d0;
+    text-decoration: none;
+    font-size: 15px;
+    transition: all 0.2s ease;
+    border-left: 4px solid transparent; /* Keeps layout smooth on hover */
+}
+
+/* Icons styling */
+.sidebar-menu a i {
+    width: 25px;
+    margin-right: 12px;
+    font-size: 16px;
+    text-align: center;
+}
+
+/* Active Item (Orange Left Border + Lighter Background) */
+.sidebar-menu a.active {
+    background-color: #121824;
+    color: #ffffff;
+    border-left-color: #ff6801;
+    font-weight: 600;
+}
+
+/* Hover State */
+.sidebar-menu a:hover {
+    background-color: #222d42;
+    color: #ffffff;
+}
+</style>
 <form id="dashForm" method="POST" action="" style="display:none;">
     <input type="hidden" name="save_dashboard_form" value="1">
     <div id="hiddenInputsContainer"></div>
@@ -184,29 +242,41 @@ if ($overrides_query) {
     <input type="hidden" name="reset_overrides" value="1">
 </form>
 
-<div class="sidebar">
-    <div class="logo">WAREHOUSE SYSTEM</div>
+<<div class="sidebar">
+    <div class="logo">WAREHOUSE</div>
     <div class="sidebar-menu">
         <a href="dashboard.php">
             <i class="fa-solid fa-gauge-high"></i> Dashboard
         </a>
-        <a href="items/item_list.php">
+        <a href="items/item_list.php" class="active">
             <i class="fa-solid fa-box-archive"></i> Items
         </a>
         <a href="items/add_item.php">
             <i class="fa-solid fa-plus"></i> Add Item
         </a>
+        <a href="import_excel.php">
+            <i class="fa-solid fa-file-import"></i> Import Excel
+        </a>
         <a href="create_job.php">
             <i class="fa-solid fa-file-circle-plus"></i> Create Job
         </a>
-        <a href="items/stock_in.php">
+        <a href="job_list.php">
+            <i class="fa-solid fa-file-lines"></i> Job List
+        </a>
+        <a href="stock/stock_in.php">
             <i class="fa-solid fa-arrow-trend-up"></i> Stock In
         </a>
         <a href="items/stock_out.php">
             <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
         </a>
-        <a href="items/edit_item.php">
-            <i class="fa-solid fa-pen-to-square"></i> Edit Item
+        <a href="return_item.php">
+            <i class="fa-solid fa-rotate-left"></i> Returns
+        </a>
+        <a href="stock/missing_item.php">
+            <i class="fa-solid fa-triangle-exclamation"></i> Missing
+        </a>
+        <a href="scaner.php">
+            <i class="fa-solid fa-barcode"></i> Scanner
         </a>
         <a href="reports/stock_report.php">
             <i class="fa-solid fa-chart-pie"></i> Reports
@@ -216,7 +286,6 @@ if ($overrides_query) {
         </a>
     </div>
 </div>
-
 <div class="topbar d-flex justify-content-between align-items-center">
     <h4>Warehouse Dashboard</h4>
     <div class="d-flex align-items-center gap-2">
