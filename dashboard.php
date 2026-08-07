@@ -182,20 +182,15 @@ if ($overrides_query) {
     <input type="hidden" name="reset_overrides" value="1">
 </form>
 
-<!-- DYNAMIC RELATIVE SIDEBAR LINKS -->
 <div class="sidebar">
     <div class="logo">WAREHOUSE SYSTEM</div>
     <a href="dashboard.php">🏠 Dashboard</a>
     <a href="items/item_list.php">📦 Items</a>
     <a href="items/add_item.php">➕ Add Item</a>
-    <a href="import_excel.php">📥 Import Excel</a>
-    <a href="create_job.php">📋 Create Job</a>
-    <a href="job_list.php">📝 Job List</a>
-    <a href="items/stock_in.php">⬆ Stock In</a>
-    <a href="items/stock_out.php">⬇ Stock Out</a>
-    <a href="return_item.php">↩ Returns</a>
-    <a href="stock/missing_item.php">❌ Missing</a>
-    <a href="scaner.php">📷 Scanner</a>
+    <a href="create_job.php">📝 Create Job</a>
+    <a href="items/stock_in.php">⬆️ Stock In</a>
+    <a href="items/stock_out.php">⬇️ Stock Out</a>
+    <a href="items/edit_item.php">✏️ Edit Item</a>
     <a href="reports/stock_report.php">📊 Reports</a>
     <a href="logout.php">🚪 Logout</a>
 </div>
