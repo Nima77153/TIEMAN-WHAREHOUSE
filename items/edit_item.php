@@ -42,14 +42,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
         $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
         
         if (in_array($file_ext, $allowed_extensions)) {
-            // Generate a unique filename string
-            $image_filename = "item_" . time() . "_" . uniqid() . "." . $file_ext;
-            $upload_path = "../uploads/items/" . $image_filename;
+            // Force clean filename based on item_code
+            $image_filename = $item_code . '.' . $file_ext;
             
-            // Ensure destination directory structural profile exists
-            if (!is_dir('../uploads/items/')) {
-                mkdir('../uploads/items/', 0755, true);
+            $upload_dir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/items/';
+            
+            // Ensure destination directory exists with permissions
+            if (!file_exists($upload_dir)) {
+                mkdir($upload_dir, 0777, true);
             }
+            
+            $upload_path = $upload_dir . $image_filename;
             
             move_uploaded_file($file_tmp, $upload_path);
         }
@@ -124,8 +127,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
                     <div class="col-md-4 text-center">
                         <label class="form-label fw-bold text-secondary mb-2 d-block">Current Uploaded Image</label>
                         <div class="preview-card mb-3">
-                            <?php if(!empty($item['image']) && file_exists("../uploads/items/" . $item['image'])){ ?>
-                                <img id="imageDisplayLink" src="../uploads/items/<?= htmlspecialchars($item['image']) ?>" class="preview-img mb-2" alt="Current Item Asset">
+                            <?php if(!empty($item['image']) && file_exists($_SERVER['DOCUMENT_ROOT'] . "/uploads/items/" . $item['image'])){ ?>
+                                <img id="imageDisplayLink" src="/uploads/items/<?= htmlspecialchars($item['image']) ?>" class="preview-img mb-2" alt="Current Item Asset">
                             <?php } else { ?>
                                 <img id="imageDisplayLink" src="../assets/images/no-image.png" class="preview-img mb-2" alt="No Asset Image Loaded">
                             <?php } ?>
