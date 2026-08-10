@@ -1,69 +1,76 @@
 <?php
 session_start();
-// Relative path configuration to step back out into main config folder safely
-include('../config/db.php');
+include('../config/db.php'); 
 
-// Retrieve item record parameters securely
-if (!isset($_GET['id']) || empty($_GET['id'])) {
+if (!$conn) {
+    die("<div class='alert alert-danger m-3'><b>Database Connection Error:</b> " . mysqli_connect_error() . "</div>");
+}
+
+$message = "";
+$item_id = "";
+$row = [];
+
+// Step 1: Fetch existing item data
+if (isset($_GET['id'])) {
+    $item_id = mysqli_real_escape_string($conn, $_GET['id']);
+    $fetch_query = "SELECT * FROM items WHERE id = '$item_id'";
+    $result = mysqli_query($conn, $fetch_query);
+
+    if (mysqli_num_rows($result) > 0) {
+        $row = mysqli_fetch_assoc($result);
+    } else {
+        header("Location: item_list.php?error=notfound");
+        exit();
+    }
+} else {
     header("Location: item_list.php");
-    exit;
+    exit();
 }
 
-$id = (int)$_GET['id'];
-$stmt = $conn->prepare("SELECT * FROM items WHERE id = ?");
-$stmt->bind_param("i", $id);
-$stmt->execute();
-$item = $stmt->get_result()->fetch_assoc();
-
-if (!$item) {
-    echo "<script>alert('Target inventory item asset not found.'); window.location='item_list.php';</script>";
-    exit;
-}
-
-// Handle Form Update Submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
-    $item_code = mysqli_real_escape_string($conn, trim($_POST['item_code']));
-    $item_name = mysqli_real_escape_string($conn, trim($_POST['item_name']));
+// Step 2: Handle form submission for editing
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_item'])) {
+    $item_code   = mysqli_real_escape_string($conn, trim($_POST['item_code']));
+    $item_name   = mysqli_real_escape_string($conn, trim($_POST['item_name']));
+    $category    = mysqli_real_escape_string($conn, trim($_POST['category']));
+    $stock_qty   = intval($_POST['stock_qty']);
+    $location    = mysqli_real_escape_string($conn, trim($_POST['location']));
     $description = mysqli_real_escape_string($conn, trim($_POST['description']));
-    $qty_per_tanker = mysqli_real_escape_string($conn, trim($_POST['qty_per_tanker']));
-    $stock_date = mysqli_real_escape_string($conn, trim($_POST['stock_date']));
-    $stock_qty = (int)$_POST['stock_qty'];
-    $location = mysqli_real_escape_string($conn, trim($_POST['location']));
-    $category = mysqli_real_escape_string($conn, trim($_POST['category'])); // Process Category field
-    
-    $image_filename = $item['image']; // Default to existing filename
+    $barcode     = !empty($_POST['barcode']) ? mysqli_real_escape_string($conn, trim($_POST['barcode'])) : $item_code;
 
-    // Process image file uploads if available
-    if (isset($_FILES['new_image']) && $_FILES['new_image']['error'] === UPLOAD_ERR_OK) {
-        $file_tmp = $_FILES['new_image']['tmp_name'];
-        $original_name = basename($_FILES['new_image']['name']);
-        $file_ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
-        
-        $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-        
-        if (in_array($file_ext, $allowed_extensions)) {
-            // Generate a unique filename string
-            $image_filename = "item_" . time() . "_" . uniqid() . "." . $file_ext;
-            $upload_path = "../uploads/items/" . $image_filename;
-            
-            // Ensure destination directory structural profile exists
-            if (!is_dir('../uploads/items/')) {
-                mkdir('../uploads/items/', 0755, true);
-            }
-            
-            move_uploaded_file($file_tmp, $upload_path);
+    // --- HANDLE IMAGE UPDATE PROCESS ---
+    $image_data = $row['image']; // Default to keeping the OLD image
+
+    // Check if a NEW image file was selected
+    if (isset($_FILES['image']) && $_FILES['image']['error'] == UPLOAD_ERR_OK) {
+        $file_tmp  = $_FILES['image']['tmp_name'];
+        $file_type = $_FILES['image']['type'];
+
+        // Read NEW image file contents and convert to Base64 format
+        $binary_content = file_get_contents($file_tmp);
+        if ($binary_content !== false) {
+            $image_data = 'data:' . $file_type . ';base64,' . base64_encode($binary_content);
         }
     }
+    // --- END IMAGE UPDATE PROCESS ---
 
-    // Updated SQL Query to handle saving category column
-    $update_stmt = $conn->prepare("UPDATE items SET item_code = ?, item_name = ?, description = ?, qty_per_tanker = ?, stock_date = ?, stock_qty = ?, location = ?, image = ?, category = ? WHERE id = ?");
-    $update_stmt->bind_param("sssssisssi", $item_code, $item_name, $description, $qty_per_tanker, $stock_date, $stock_qty, $location, $image_filename, $category, $id);
+    $image_data_escaped = mysqli_real_escape_string($conn, $image_data);
 
-    if ($update_stmt->execute()) {
-        echo "<script>alert('✨ Inventory item layout updated successfully!'); window.location='item_list.php';</script>";
-        exit;
+    $update_query = "UPDATE items SET 
+                     item_code = '$item_code', 
+                     item_name = '$item_name', 
+                     barcode = '$barcode', 
+                     category = '$category', 
+                     stock_qty = '$stock_qty', 
+                     location = '$location', 
+                     description = '$description', 
+                     image = '$image_data_escaped'
+                     WHERE id = '$item_id'";
+
+    if (mysqli_query($conn, $update_query)) {
+        header("Location: item_list.php?updated=1");
+        exit();
     } else {
-        $error_message = "Database execution error transaction trace: " . $conn->error;
+        $message = "<div class='alert alert-danger m-0 border-0 rounded-0'>❌ <b>Error updating record:</b> " . mysqli_error($conn) . "</div>";
     }
 }
 ?>
@@ -72,134 +79,97 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Warehouse Item</title>
+    <title>Warehouse - Edit Item</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
     <style>
-        body { background:#f4f6f9; font-family:'Segoe UI', sans-serif; }
-        .sidebar { width:250px; height:100vh; background:#111827; position:fixed; left:0; top:0; overflow:auto; z-index: 100; }
-        .logo { background:#f97316; padding:20px; text-align:center; font-size:22px; font-weight:bold; color:white; }
-        .sidebar a { display:block; padding:15px; color:white; text-decoration:none; transition:.3s; }
-        .sidebar a:hover { background:#f97316; }
-        .main { margin-left:250px; padding:20px; }
-        .topbar { background:white; padding:15px 20px; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,.1); margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; }
-        .card-box { background:white; padding:30px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.08); }
-        
-        /* Modern Upload Image Card Form Preview Styles */
-        .preview-card { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 15px; text-align: center; background: #f8fafc; }
-        .preview-img { max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; }
+        body { background:#1e293b; color: white; font-family:'Segoe UI', sans-serif; }
+        .sidebar { width:260px; height:100vh; background:#111827; position:fixed; left:0; top:0; overflow:auto; z-index: 100; }
+        .logo { background:#f97316; padding:18px; text-align:center; font-size:20px; font-weight:bold; color:white; }
+        .sidebar a { display:block; padding:12px 18px; color:white; text-decoration:none; transition:.3s; }
+        .sidebar a:hover, .sidebar .active { background:#f97316; }
+        .main { margin-left:260px; padding:20px; }
+        .card-box { background:#1f2937; padding:25px; border-radius:15px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .form-control, .form-select { background-color: #374151; border: 1px solid #4b5563; color: white; }
+        .form-control:focus, .form-select:focus { background-color: #374151; color: white; border-color: #f97316; box-shadow: none; }
+        .form-control::placeholder { color: #9ca3af; }
+        @media(max-width: 768px) { .sidebar { display: none; } .main { margin-left: 0; padding: 10px; } }
     </style>
 </head>
 <body>
 
     <div class="sidebar">
-        <div class="logo">WAREHOUSE</div>
-        <a href="http://localhost/TIEMAN%20WAREHOUSE/dashboard.php">🏠 Dashboard</a>
-        <a href="http://localhost/TIEMAN%20WAREHOUSE/items/item_list.php">📦 Items</a>
-        <a href="http://localhost/TIEMAN%20WAREHOUSE/items/add_item.php">➕ Add Item</a>
-        <a href="http://localhost/TIEMAN%20WAREHOUSE/items/import_excel.php">📥 Import Excel</a>
-        <a href="http://localhost/TIEMAN%20WAREHOUSE/jobs/job_list.php">📝 Job List</a>
-        <a href="http://localhost/TIEMAN%20WAREHOUSE/logout.php">🚪 Logout</a>
+        <div class="logo">WAREHOUSE SYSTEM</div>
+        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/dashboard.php">🏠 Dashboard</a>
+        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/item_list.php">📦 Items</a>
+        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/add_item.php">➕ Add Item</a>
+        <!-- Add other menu links as needed -->
+        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/logout.php">🚪 Logout</a>
     </div>
 
     <div class="main">
-        <div class="topbar">
-            <h4>Management &amp; Update Utility</h4>
-            <div>Logged in profile: <strong><?= isset($_SESSION['user']) ? htmlspecialchars($_SESSION['user']) : 'Admin'; ?></strong></div>
-        </div>
-
-        <div class="card-box">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h3><i class="bi bi-pencil-square text-warning me-2"></i>Edit Item Specifications</h3>
-                <a href="item_list.php" class="btn btn-secondary btn-sm"><i class="bi bi-arrow-left"></i> Back to Catalog List</a>
-            </div>
-
-            <?php if (isset($error_message)): ?>
-                <div class="alert alert-danger"><?= htmlspecialchars($error_message) ?></div>
-            <?php endif; ?>
-
-            <form method="POST" enctype="multipart/form-data">
+        <?= $message ?>
+        
+        <div class="card-box mt-3">
+            <h4 class="mb-4 text-white fw-bold" style="border-left: 5px solid #f97316; padding-left: 10px;">Edit Item: <?= htmlspecialchars($row['item_name']) ?></h4>
+            
+            <form action="edit_item.php?id=<?= $item_id ?>" method="POST" enctype="multipart/form-data">
                 <div class="row g-4">
                     
-                    <div class="col-md-4 text-center">
-                        <label class="form-label fw-bold text-secondary mb-2 d-block">Current Uploaded Image</label>
-                        <div class="preview-card mb-3">
-                            <?php if(!empty($item['image']) && file_exists("../uploads/items/" . $item['image'])){ ?>
-                                <img id="imageDisplayLink" src="../uploads/items/<?= htmlspecialchars($item['image']) ?>" class="preview-img mb-2" alt="Current Item Asset">
-                            <?php } else { ?>
-                                <img id="imageDisplayLink" src="../assets/images/no-image.png" class="preview-img mb-2" alt="No Asset Image Loaded">
-                            <?php } ?>
-                            <div class="small text-muted mt-2">File Upload Preview Matrix Context</div>
-                        </div>
-                        <div class="text-start">
-                            <label for="new_image" class="form-label fw-semibold small text-muted">Upload New Replacement File</label>
-                            <input type="file" name="new_image" id="new_image" class="form-control" accept="image/*" onchange="previewSelectedFile(this)">
-                        </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold text-light">Item Code / Part No</label>
+                        <input type="text" name="item_code" class="form-control form-control-lg" value="<?= htmlspecialchars($row['item_code']) ?>" required>
                     </div>
 
-                    <div class="col-md-8">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label fw-semibold">Part No</label>
-                                <input type="text" name="item_code" class="form-control bg-light fw-bold" value="<?= htmlspecialchars($item['item_code']) ?>" required>
-                            </div>
-                            
-                            <div class="col-md-6">
-                                <label class="form-label fw-semibold">Item Name</label>
-                                <input type="text" name="item_name" class="form-control" value="<?= htmlspecialchars($item['item_name'] ?? $item['description'] ?? '') ?>" required>
-                            </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold text-light">Item Name</label>
+                        <input type="text" name="item_name" class="form-control form-control-lg" value="<?= htmlspecialchars($row['item_name']) ?>" required>
+                    </div>
 
-                            <div class="col-md-12">
-                                <label class="form-label fw-semibold text-dark">Category</label>
-                                <select name="category" class="form-select" required>
-                                    <option value="" <?= empty($item['category']) ? 'selected' : '' ?>>-- Select Category --</option>
-                                    <option value="Store Tieman" <?= (($item['category'] ?? '') === 'Store Tieman') ? 'selected' : '' ?>>Store Tieman</option>
-                                    <option value="Extrusion" <?= (($item['category'] ?? '') === 'Extrusion') ? 'selected' : '' ?>>Extrusion</option>
-                                    <option value="General" <?= (($item['category'] ?? '') === 'General') ? 'selected' : '' ?>>General</option>
-                                    <option value="Civacon" <?= (($item['category'] ?? '') === 'Civacon') ? 'selected' : '' ?>>Civacon</option>
-                                    <option value="Pneumatic" <?= (($item['category'] ?? '') === 'Pneumatic') ? 'selected' : '' ?>>Pneumatic</option>
-                                    <option value="Lower Chassis Parts" <?= (($item['category'] ?? '') === 'Lower Chassis Parts') ? 'selected' : '' ?>>Lower Chassis Parts</option>
-                                    <option value="Air Brake Parts" <?= (($item['category'] ?? '') === 'Air Brake Parts') ? 'selected' : '' ?>>Air Brake Parts</option>
-                                    <option value="Other items" <?= (($item['category'] ?? '') === 'Other items') ? 'selected' : '' ?>>Other items</option>
-                                    <option value="Valve & Pipe Parts" <?= (($item['category'] ?? '') === 'Valve & Pipe Parts') ? 'selected' : '' ?>>Valve & Pipe Parts</option>
-                                    <option value="LIQUIQ Parts" <?= (($item['category'] ?? '') === 'LIQUIQ Parts') ? 'selected' : '' ?>>LIQUIQ Parts</option>
-                                    <option value="Electrical Parts" <?= (($item['category'] ?? '') === 'Electrical Parts') ? 'selected' : '' ?>>Electrical Parts</option>
-                                    <option value="Lamp and fitting parts" <?= (($item['category'] ?? '') === 'Lamp and fitting parts') ? 'selected' : '' ?>>Lamp and fitting parts</option>
-                                    <option value="Malayisa items" <?= (($item['category'] ?? '') === 'Malayisa items') ? 'selected' : '' ?>>Malayisa items</option>
-                                    <option value="China items" <?= (($item['category'] ?? '') === 'China items') ? 'selected' : '' ?>>China items</option>
-                                </select>
-                            </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold text-light">Category</label>
+                        <select name="category" class="form-select form-select-lg" required>
+                            <option value="<?= htmlspecialchars($row['category']) ?>" selected><?= htmlspecialchars($row['category']) ?></option>
+                            <option value="Store Tieman">Store Tieman</option>
+                            <option value="Extrusion">Extrusion</option>
+                            <option value="General">General</option>
+                            <!-- Add other category options here -->
+                        </select>
+                    </div>
 
-                            <div class="col-12">
-                                <label class="form-label fw-semibold">Description Specifications</label>
-                                <textarea name="description" class="form-control" rows="2"><?= htmlspecialchars($item['description'] ?? '') ?></textarea>
-                            </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold text-light">Stock Qty</label>
+                        <input type="number" name="stock_qty" class="form-control form-control-lg" value="<?= htmlspecialchars($row['stock_qty']) ?>" min="0" required>
+                    </div>
 
-                            <div class="col-md-6">
-                                <label class="form-label fw-semibold text-success">Qty Per Tanker (How Much Use Per Tank)</label>
-                                <input type="text" name="qty_per_tanker" class="form-control" value="<?= htmlspecialchars($item['qty_per_tanker'] ?? '') ?>">
-                            </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold text-light">Location</label>
+                        <input type="text" name="location" class="form-control form-control-lg" value="<?= htmlspecialchars($row['location']) ?>">
+                    </div>
 
-                            <div class="col-md-6">
-                                <label class="form-label fw-semibold text-primary">Stock Date (Month Reference)</label>
-                                <input type="text" name="stock_date" class="form-control" value="<?= htmlspecialchars($item['stock_date'] ?? '') ?>">
-                            </div>
+                    <input type="hidden" name="barcode" value="<?= htmlspecialchars($row['barcode']) ?>">
 
-                            <div class="col-md-6">
-                                <label class="form-label fw-semibold">Current Stock Qty</label>
-                                <input type="number" name="stock_qty" class="form-control fw-bold text-dark" value="<?= (int)$item['stock_qty'] ?>" required>
-                            </div>
+                    <div class="col-12">
+                        <label class="form-label fw-semibold text-light">Description</label>
+                        <textarea name="description" class="form-control" rows="4"><?= htmlspecialchars($row['description']) ?></textarea>
+                    </div>
 
-                            <div class="col-md-6">
-                                <label class="form-label fw-semibold">Remark / Storage Location</label>
-                                <input type="text" name="location" class="form-control" value="<?= htmlspecialchars($item['location'] ?? '') ?>">
-                            </div>
-                        </div>
+                    <div class="col-md-12 mt-4">
+                        <label class="form-label fw-semibold text-light">Current Image</label><br>
+                        <?php if (!empty($row['image'])): ?>
+                            <img src="<?= $row['image'] ?>" alt="Current Item Image" class="img-thumbnail shadow-sm mb-3" style="width:150px; height:150px; object-fit:cover; border-radius:10px; border: 2px solid #4b5563;">
+                        <?php else: ?>
+                            <div class="p-3 mb-3 text-muted bg-dark rounded text-center" style="width:150px; height:150px; border: 2px dashed #4b5563;">No Image Stored</div>
+                        <?php endif; ?>
+                    </div>
 
-                        <div class="mt-5 pt-3 border-top d-flex gap-2 justify-content-end">
-                            <a href="item_list.php" class="btn btn-outline-secondary px-4">Cancel</a>
-                            <button type="submit" name="update_item" class="btn btn-warning px-4 fw-bold">Update Item Changes</button>
-                        </div>
+                    <div class="col-md-12">
+                        <label class="form-label fw-semibold text-light">Upload New Image (Leave blank to keep current)</label>
+                        <input type="file" name="image" accept="image/*" class="form-control form-control-lg">
+                    </div>
+
+                    <div class="col-12 mt-4">
+                        <button type="submit" name="update_item" class="btn text-white fw-bold px-5 py-2.5 shadow" style="background: #f97316; font-size: 16px; border: none; border-radius: 6px;">Update Item</button>
+                        <a href="item_list.php" class="btn btn-outline-light px-4 py-2.5 ms-2" style="border-radius: 6px;">Cancel</a>
                     </div>
 
                 </div>
@@ -207,18 +177,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
         </div>
     </div>
 
-    <script>
-        // Live client-side structural image path tracking preview engine
-        function previewSelectedFile(inputElement) {
-            const displayPreviewFrame = document.getElementById('imageDisplayLink');
-            if (inputElement.files && inputElement.files[0]) {
-                const layoutReader = new FileReader();
-                layoutReader.onload = function (eventTarget) {
-                    displayPreviewFrame.src = eventTarget.target.result;
-                };
-                layoutReader.readAsDataURL(inputElement.files[0]);
-            }
-        }
-    </script>
 </body>
 </html>
