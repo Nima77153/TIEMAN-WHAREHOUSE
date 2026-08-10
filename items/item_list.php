@@ -45,6 +45,34 @@ function getDynamicImagePath($image_file) {
 }
 
 // ==========================================
+// UPLOAD HANDLING BASED ON ITEM CODE
+// ==========================================
+if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
+    $fileTmpPath = $_FILES['image']['tmp_name'];
+    $fileExtension = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
+    
+    // Force clean filename based on item_code instead of keeping "WhatsApp..."
+    $newItemCode = trim($_POST['item_code']);
+    $newFileName = $newItemCode . '.' . strtolower($fileExtension);
+    
+    $uploadFileDir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/';
+    
+    if (!file_exists($uploadFileDir)) {
+        mkdir($uploadFileDir, 0777, true);
+    }
+
+    $dest_path = $uploadFileDir . $newFileName;
+    
+    if(move_uploaded_file($fileTmpPath, $dest_path)) {
+        // Save $newFileName into database 'image' column
+        $stmt = $conn->prepare("UPDATE items SET image = ? WHERE item_code = ?");
+        $stmt->bind_param("ss", $newFileName, $newItemCode);
+        $stmt->execute();
+        $stmt->close();
+    }
+}
+
+// ==========================================
 // AJAX BACKEND: UPDATE ALL STOCK DATES
 // ==========================================
 if (isset($_POST['action']) && $_POST['action'] === 'update_stock_dates') {
@@ -372,7 +400,7 @@ $result = $stmt->get_result();
         </div>
 
         <div class="card-box">
-            <form id="bulkActionForm" method="POST" action="item_list.php">
+            <form id="bulkActionForm" method="POST" action="item_list.php" enctype="multipart/form-data">
                 <input type="hidden" name="export_search" value="<?= htmlspecialchars($search) ?>">
                 <input type="hidden" name="export_category" value="<?= htmlspecialchars($category_filter) ?>">
                 <input type="hidden" name="export_sort" value="<?= htmlspecialchars($sort_option) ?>">
