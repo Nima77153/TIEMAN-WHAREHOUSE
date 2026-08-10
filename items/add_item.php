@@ -9,37 +9,31 @@ if (!$conn) {
 $message = "";
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
-    $item_code  = mysqli_real_escape_string($conn, trim($_POST['item_code']));
-    $item_name  = mysqli_real_escape_string($conn, trim($_POST['item_name']));
-    $category   = mysqli_real_escape_string($conn, trim($_POST['category']));
-    $stock_qty  = intval($_POST['stock_qty']);
-    $location   = mysqli_real_escape_string($conn, trim($_POST['location']));
+    $item_code   = mysqli_real_escape_string($conn, trim($_POST['item_code']));
+    $item_name   = mysqli_real_escape_string($conn, trim($_POST['item_name']));
+    $category    = mysqli_real_escape_string($conn, trim($_POST['category']));
+    $stock_qty   = intval($_POST['stock_qty']);
+    $location    = mysqli_real_escape_string($conn, trim($_POST['location']));
     $description = mysqli_real_escape_string($conn, trim($_POST['description']));
-    $barcode    = !empty($_POST['barcode']) ? mysqli_real_escape_string($conn, trim($_POST['barcode'])) : $item_code;
+    $barcode     = !empty($_POST['barcode']) ? mysqli_real_escape_string($conn, trim($_POST['barcode'])) : $item_code;
 
-    // Handle Image Upload Process
-    $image_name = "";
-    if (isset($_FILES['image']) && $_FILES['image']['error'] == 0) {
-        // Adjusted directory route to make sure it drops inside your root uploads folder
-        $target_dir = "../uploads/";
-        
-        if (!file_exists($target_dir)) {
-            mkdir($target_dir, 0777, true);
-        }
-        
-        $file_ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
-        $image_name = time() . "_" . bin2hex(random_bytes(4)) . "." . $file_ext;
-        $target_file = $target_dir . $image_name;
-        
-        if (move_uploaded_file($_FILES['image']['tmp_name'], $target_file)) {
-            // File saved successfully
-        } else {
-            $image_name = ""; // Fallback if server folder permissions block moving file
+    // Handle Image Upload Process (Base64 Database Storage)
+    $image_data = "";
+    if (isset($_FILES['image']) && $_FILES['image']['error'] == UPLOAD_ERR_OK) {
+        $file_tmp  = $_FILES['image']['tmp_name'];
+        $file_type = $_FILES['image']['type'];
+
+        // Read image file contents and convert to Base64 format
+        $binary_content = file_get_contents($file_tmp);
+        if ($binary_content !== false) {
+            $image_data = 'data:' . $file_type . ';base64,' . base64_encode($binary_content);
         }
     }
 
+    $image_data_escaped = mysqli_real_escape_string($conn, $image_data);
+
     $insert_query = "INSERT INTO items (item_code, item_name, barcode, category, stock_qty, location, description, image) 
-                     VALUES ('$item_code', '$item_name', '$barcode', '$category', '$stock_qty', '$location', '$description', '$image_name')";
+                     VALUES ('$item_code', '$item_name', '$barcode', '$category', '$stock_qty', '$location', '$description', '$image_data_escaped')";
 
     if (mysqli_query($conn, $insert_query)) {
         header("Location: item_list.php?success=1");
@@ -112,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
                         <label class="form-label fw-semibold text-light">Category</label>
                         <select name="category" class="form-select form-select-lg" required>
                             <option value="" disabled selected>-- Select Material Category --</option>
-                             <option value="Store Tieman">Store Tieman</option>
+                            <option value="Store Tieman">Store Tieman</option>
                             <option value="Extrusion">Extrusion</option>
                             <option value="General">General</option>
                             <option value="Pneumatic">Pneumatic</option>
@@ -120,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
                             <option value="Air Brake Parts">Air Brake Parts</option>
                             <option value="Other items">Other items</option>
                             <option value="Valve & Pipe Parts">Valve & Pipe Parts</option>
-                            <option value="LIQUIQ Parts">LIQUIQ Parts</option>
+                            <option value="Liquip Parts">Liquip Parts</option>
                             <option value="Electrical Parts">Electrical Parts</option>
                             <option value="Lamp and fitting parts">Lamp and fitting parts</option>
                             <option value="Malasyia items">Malaysia</option>
