@@ -422,13 +422,22 @@ $result = $stmt->get_result();
                         <tbody>
                             <?php if($result->num_rows > 0) {
                                 while($row = $result->fetch_assoc()) { 
-                                    $image_file = $row['image'];
-                                    $image_src = "../assets/images/no-image.png";
-                                    
+                                    // IMAGE PATH - Render/GitHub
+                                    // Images are stored directly inside /uploads/
+                                    $image_file = trim($row['image'] ?? '');
+                                    $image_src = "/assets/images/no-image.png";
+
                                     if (!empty($image_file)) {
-                                        if (file_exists("../uploads/" . $image_file)) { $image_src = "../uploads/" . $image_file; }
-                                        elseif (file_exists("../uploads/items/" . $image_file)) { $image_src = "../uploads/items/" . $image_file; }
-                                        elseif (file_exists("../assets/images/" . $image_file)) { $image_src = "../assets/images/" . $image_file; }
+                                        // Keep only the filename in case the database contains a path
+                                        $image_file = str_replace('\\', '/', $image_file);
+                                        $image_file = basename($image_file);
+
+                                        // Check the image on the Render server
+                                        $upload_full_path = $_SERVER['DOCUMENT_ROOT'] . "/uploads/" . $image_file;
+
+                                        if (file_exists($upload_full_path)) {
+                                            $image_src = "/uploads/" . rawurlencode($image_file);
+                                        }
                                     }
 
                                     $formatted_stock_date = "";
@@ -445,9 +454,11 @@ $result = $stmt->get_result();
                                     </td>
                                     <td class="text-center">
                                         <div class="img-zoom-container">
-                                            <img src="<?= $image_src ?>" class="zoomable-thumbnail" alt="Item">
+                                            <img src="<?= htmlspecialchars($image_src) ?>" class="zoomable-thumbnail" alt="Item"
+                                                 onerror="this.onerror=null; this.src='/assets/images/no-image.png';">
                                             <div class="zoom-popup-view">
-                                                <img src="<?= $image_src ?>" alt="Full Asset Display View">
+                                                <img src="<?= htmlspecialchars($image_src) ?>" alt="Full Asset Display View"
+                                                     onerror="this.onerror=null; this.src='/assets/images/no-image.png';">
                                             </div>
                                         </div>
                                     </td>
