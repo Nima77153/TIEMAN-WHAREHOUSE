@@ -112,6 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
                         <label class="form-label fw-semibold text-light">Category</label>
                         <select name="category" class="form-select form-select-lg" required>
                             <option value="" disabled selected>-- Select Material Category --</option>
+                             <option value="Store Tieman">Store Tieman</option>
                             <option value="Extrusion">Extrusion</option>
                             <option value="General">General</option>
                             <option value="Pneumatic">Pneumatic</option>

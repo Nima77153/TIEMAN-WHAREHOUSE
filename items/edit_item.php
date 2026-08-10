@@ -153,6 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
                                 <label class="form-label fw-semibold text-dark">Category</label>
                                 <select name="category" class="form-select" required>
                                     <option value="" <?= empty($item['category']) ? 'selected' : '' ?>>-- Select Category --</option>
+                                    <option value="Store Tieman" <?= (($item['category'] ?? '') === 'Store Tieman') ? 'selected' : '' ?>>Store Tieman</option>
                                     <option value="Extrusion" <?= (($item['category'] ?? '') === 'Extrusion') ? 'selected' : '' ?>>Extrusion</option>
                                     <option value="General" <?= (($item['category'] ?? '') === 'General') ? 'selected' : '' ?>>General</option>
                                     <option value="Civacon" <?= (($item['category'] ?? '') === 'Civacon') ? 'selected' : '' ?>>Civacon</option>

@@ -361,6 +361,7 @@ $result = $stmt->get_result();
                     <div class="col-md-3">
                         <select id="ui_category" class="form-select">
                             <option value="">-- All Categories --</option>
+                            <option value="Store Tieman" <?= ($category_filter == 'Store Tieman') ? 'selected' : '' ?>>Store Tieman</option>
                             <option value="Extrusion" <?= ($category_filter == 'Extrusion') ? 'selected' : '' ?>>Extrusion</option>
                             <option value="General" <?= ($category_filter == 'General') ? 'selected' : '' ?>>General</option>
                             <option value="Civacon" <?= ($category_filter == 'Civacon') ? 'selected' : '' ?>>Civacon</option>
