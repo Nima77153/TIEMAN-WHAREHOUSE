@@ -102,7 +102,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_item'])) {
         <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/dashboard.php">🏠 Dashboard</a>
         <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/item_list.php">📦 Items</a>
         <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/add_item.php">➕ Add Item</a>
-        <!-- Add other menu links as needed -->
         <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/logout.php">🚪 Logout</a>
     </div>
 
@@ -132,7 +131,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_item'])) {
                             <option value="Store Tieman">Store Tieman</option>
                             <option value="Extrusion">Extrusion</option>
                             <option value="General">General</option>
-                            <!-- Add other category options here -->
                         </select>
                     </div>
 
@@ -154,17 +152,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_item'])) {
                     </div>
 
                     <div class="col-md-12 mt-4">
-                        <label class="form-label fw-semibold text-light">Current Image</label><br>
-                        <?php if (!empty($row['image'])): ?>
-                            <img src="<?= $row['image'] ?>" alt="Current Item Image" class="img-thumbnail shadow-sm mb-3" style="width:150px; height:150px; object-fit:cover; border-radius:10px; border: 2px solid #4b5563;">
-                        <?php else: ?>
-                            <div class="p-3 mb-3 text-muted bg-dark rounded text-center" style="width:150px; height:150px; border: 2px dashed #4b5563;">No Image Stored</div>
-                        <?php endif; ?>
+                        <label class="form-label fw-semibold text-light">Image Preview</label><br>
+                        <?php 
+                        $img_src = (!empty($row['image']) && strpos($row['image'], 'data:image') === 0) 
+                                   ? $row['image'] 
+                                   : 'https://via.placeholder.com/150?text=No+Image';
+                        ?>
+                        <img id="preview-img" src="<?= $img_src ?>" alt="Item Image" class="img-thumbnail shadow-sm mb-3" style="width:150px; height:150px; object-fit:cover; border-radius:10px; border: 2px solid #4b5563;" onerror="this.src='https://via.placeholder.com/150?text=No+Image';">
                     </div>
 
                     <div class="col-md-12">
                         <label class="form-label fw-semibold text-light">Upload New Image (Leave blank to keep current)</label>
-                        <input type="file" name="image" accept="image/*" class="form-control form-control-lg">
+                        <input type="file" name="image" id="image-input" accept="image/*" class="form-control form-control-lg">
                     </div>
 
                     <div class="col-12 mt-4">
@@ -176,6 +175,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_item'])) {
             </form>
         </div>
     </div>
+
+    <!-- JavaScript to automatically change preview image on select -->
+    <script>
+    document.getElementById('image-input').addEventListener('change', function(event) {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = document.getElementById('preview-img');
+                img.src = e.target.result;
+                img.style.borderColor = '#f97316';
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+    </script>
 
 </body>
 </html>
