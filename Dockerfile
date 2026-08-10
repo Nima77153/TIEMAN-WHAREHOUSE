@@ -10,5 +10,9 @@ RUN docker-php-ext-install mysqli pdo pdo_mysql
 # Copy project files
 COPY . /var/www/html/
 
-# Apache listens on port 80
+# Give Apache permission to write uploaded files
+RUN mkdir -p /var/www/html/uploads/items \
+    && chown -R www-data:www-data /var/www/html/uploads \
+    && chmod -R 775 /var/www/html/uploads
+
 EXPOSE 80
