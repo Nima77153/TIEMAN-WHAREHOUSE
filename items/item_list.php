@@ -6,6 +6,44 @@ if (!$conn) {
     die("Database Connection Error: " . mysqli_connect_error());
 }
 
+// Helper function to dynamically check file extensions (.jpg, .jpeg, .png, etc.)
+function getDynamicImagePath($image_file) {
+    if (empty($image_file)) {
+        return false;
+    }
+    
+    $image_file = str_replace('\\', '/', $image_file);
+    $image_file = basename($image_file);
+    
+    $filenameWithoutExt = pathinfo($image_file, PATHINFO_FILENAME);
+    $possibleExtensions = ['jpg', 'jpeg', 'png', 'JPG', 'JPEG', 'PNG', 'webp', 'emf'];
+    
+    $search_directories = [
+        $_SERVER['DOCUMENT_ROOT'] . "/uploads/",
+        $_SERVER['DOCUMENT_ROOT'] . "/uploads/items/",
+        $_SERVER['DOCUMENT_ROOT'] . "/assets/images/"
+    ];
+    
+    // Check exact name first
+    foreach ($search_directories as $dir) {
+        if (file_exists($dir . $image_file)) {
+            return str_replace($_SERVER['DOCUMENT_ROOT'], '', $dir . $image_file);
+        }
+    }
+    
+    // Fallback: check alternative extensions
+    foreach ($search_directories as $dir) {
+        foreach ($possibleExtensions as $ext) {
+            $test_filename = $filenameWithoutExt . '.' . $ext;
+            if (file_exists($dir . $test_filename)) {
+                return str_replace($_SERVER['DOCUMENT_ROOT'], '', $dir . $test_filename);
+            }
+        }
+    }
+    
+    return false;
+}
+
 // ==========================================
 // AJAX BACKEND: UPDATE ALL STOCK DATES
 // ==========================================
@@ -106,14 +144,9 @@ if (isset($_POST['export_excel_action'])) {
         $image_file = $row['image'];
         $web_image_path = "";
 
-        if (!empty($image_file)) {
-            if (file_exists("../uploads/" . $image_file)) {
-                $web_image_path = $domain_url . "/TIEMAN%20WAREHOUSE/uploads/" . $image_file;
-            } elseif (file_exists("../uploads/items/" . $image_file)) {
-                $web_image_path = $domain_url . "/TIEMAN%20WAREHOUSE/uploads/items/" . $image_file;
-            } elseif (file_exists("../assets/images/" . $image_file)) {
-                $web_image_path = $domain_url . "/TIEMAN%20WAREHOUSE/assets/images/" . $image_file;
-            }
+        $found_path = getDynamicImagePath($image_file);
+        if ($found_path !== false) {
+            $web_image_path = $domain_url . $found_path;
         }
 
         echo '<tr style="height: 60px; vertical-align: middle;">';
@@ -422,22 +455,12 @@ $result = $stmt->get_result();
                         <tbody>
                             <?php if($result->num_rows > 0) {
                                 while($row = $result->fetch_assoc()) { 
-                                    // IMAGE PATH - Render/GitHub
-                                    // Images are stored directly inside /uploads/
                                     $image_file = trim($row['image'] ?? '');
                                     $image_src = "/assets/images/no-image.png";
 
-                                    if (!empty($image_file)) {
-                                        // Keep only the filename in case the database contains a path
-                                        $image_file = str_replace('\\', '/', $image_file);
-                                        $image_file = basename($image_file);
-
-                                        // Check the image on the Render server
-                                        $upload_full_path = $_SERVER['DOCUMENT_ROOT'] . "/uploads/" . $image_file;
-
-                                        if (file_exists($upload_full_path)) {
-                                            $image_src = "/uploads/" . rawurlencode($image_file);
-                                        }
+                                    $found_path = getDynamicImagePath($image_file);
+                                    if ($found_path !== false) {
+                                        $image_src = $found_path;
                                     }
 
                                     $formatted_stock_date = "";
@@ -590,40 +613,48 @@ $result = $stmt->get_result();
         });
 
         function applyAndAutoSaveBulkMonthYear() {
-            const monthYearVal = document.getElementById('auto_month_year').value;
-            if (!monthYearVal) {
-                alert('Please pick a Month and Year first!');
+            const selectedMonthYear = document.getElementById('auto_month_year').value;
+            if (!selectedMonthYear) {
+                alert('Please select a Month and Year first.');
                 return;
             }
 
-            const inputs = document.querySelectorAll('.stock-date-input');
-            inputs.forEach(input => {
-                let currentDay = '01';
-                if (input.value) {
-                    const parts = input.value.split('-');
-                    if (parts.length === 3) {
-                        currentDay = parts[2];
-                    }
+            const dateInputs = document.querySelectorAll('.stock-date-input');
+            const payloadDates = {};
+
+            dateInputs.forEach(input => {
+                const currentVal = input.value;
+                let day = '01';
+
+                if (currentVal && currentVal.split('-').length === 3) {
+                    day = currentVal.split('-')[2];
                 }
-                input.value = `${monthYearVal}-${currentDay}`;
+
+                const newFullDate = `${selectedMonthYear}-${day}`;
+                input.value = newFullDate;
+
+                const itemId = input.getAttribute('data-id');
+                payloadDates[itemId] = newFullDate;
             });
 
-            // Auto save all changes directly to DB
-            saveAllStockDates();
             contextMenu.style.display = 'none';
+            sendBulkDateUpdate(payloadDates);
         }
 
-        function saveAllStockDates() {
-            const inputs = document.querySelectorAll('.stock-date-input');
-            const datesData = {};
+        function autoSaveSingleDate(inputElement) {
+            const itemId = inputElement.getAttribute('data-id');
+            const newDate = inputElement.value;
 
-            inputs.forEach(input => {
-                const id = input.getAttribute('data-id');
-                datesData[id] = input.value;
-            });
+            const payloadDates = {};
+            payloadDates[itemId] = newDate;
 
+            sendBulkDateUpdate(payloadDates);
+        }
+
+        function sendBulkDateUpdate(datesData) {
             const formData = new FormData();
             formData.append('action', 'update_stock_dates');
+
             for (const [id, dateVal] of Object.entries(datesData)) {
                 formData.append(`dates[${id}]`, dateVal);
             }
@@ -635,18 +666,14 @@ $result = $stmt->get_result();
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    console.log('Stock dates auto-updated successfully.');
+                    console.log('Stock date updated successfully:', data.message);
                 } else {
-                    alert('Error: ' + data.message);
+                    alert('Error updating dates: ' + data.message);
                 }
             })
             .catch(error => {
-                console.error('Error updating stock dates:', error);
+                console.error('AJAX Request Failed:', error);
             });
-        }
-
-        function autoSaveSingleDate(inputElem) {
-            saveAllStockDates();
         }
     </script>
 </body>
