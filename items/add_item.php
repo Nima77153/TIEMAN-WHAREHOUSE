@@ -1,6 +1,14 @@
 <?php
+
 session_start();
-include('../config/db.php'); 
+
+require_once '../vendor/autoload.php';
+include('../config/db.php');
+
+use Cloudinary\Configuration\Configuration;
+use Cloudinary\Api\Upload\UploadApi;
+
+Configuration::instance(getenv('CLOUDINARY_URL'));
 
 if (!$conn) {
     die("<div class='alert alert-danger m-3'><b>Database Connection Error:</b> " . mysqli_connect_error() . "</div>");
@@ -9,43 +17,74 @@ if (!$conn) {
 $message = "";
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
-    $item_code  = mysqli_real_escape_string($conn, trim($_POST['item_code']));
-    $item_name  = mysqli_real_escape_string($conn, trim($_POST['item_name']));
-    $category   = mysqli_real_escape_string($conn, trim($_POST['category']));
-    $stock_qty  = intval($_POST['stock_qty']);
-    $location   = mysqli_real_escape_string($conn, trim($_POST['location']));
-    $description = mysqli_real_escape_string($conn, trim($_POST['description']));
-    $barcode    = !empty($_POST['barcode']) ? mysqli_real_escape_string($conn, trim($_POST['barcode'])) : $item_code;
 
-    // Handle Image Upload Process
+    $item_code = mysqli_real_escape_string($conn, trim($_POST['item_code']));
+    $item_name = mysqli_real_escape_string($conn, trim($_POST['item_name']));
+    $category = mysqli_real_escape_string($conn, trim($_POST['category']));
+    $stock_qty = intval($_POST['stock_qty']);
+    $location = mysqli_real_escape_string($conn, trim($_POST['location']));
+    $description = mysqli_real_escape_string($conn, trim($_POST['description']));
+    $barcode = !empty($_POST['barcode'])
+        ? mysqli_real_escape_string($conn, trim($_POST['barcode']))
+        : $item_code;
+
+
+    // ==========================================
+    // Upload Image to Cloudinary
+    // ==========================================
+
     $image_name = "";
-    if (isset($_FILES['image']) && $_FILES['image']['error'] == 0) {
-        // Adjusted directory route to make sure it drops inside your root uploads folder
-        $target_dir = "../uploads/";
-        
-        if (!file_exists($target_dir)) {
-            mkdir($target_dir, 0777, true);
-        }
-        
-        $file_ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
-        $image_name = time() . "_" . bin2hex(random_bytes(4)) . "." . $file_ext;
-        $target_file = $target_dir . $image_name;
-        
-        if (move_uploaded_file($_FILES['image']['tmp_name'], $target_file)) {
-            // File saved successfully
-        } else {
-            $image_name = ""; // Fallback if server folder permissions block moving file
+
+    if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
+
+        try {
+
+            $upload = new UploadApi();
+
+            $upload_result = $upload->upload(
+                $_FILES['image']['tmp_name'],
+                [
+                    'folder' => 'tieman_warehouse/items',
+                    'resource_type' => 'image'
+                ]
+            );
+
+            // Save Cloudinary permanent URL
+            $image_name = $upload_result['secure_url'];
+
+        } catch (Exception $e) {
+
+            $message = "<div class='alert alert-danger m-0 border-0 rounded-0'>
+                ❌ <b>Image upload failed:</b> " .
+                htmlspecialchars($e->getMessage()) .
+                "</div>";
+
+            $image_name = "";
         }
     }
 
-    $insert_query = "INSERT INTO items (item_code, item_name, barcode, category, stock_qty, location, description, image) 
-                     VALUES ('$item_code', '$item_name', '$barcode', '$category', '$stock_qty', '$location', '$description', '$image_name')";
+
+    // ==========================================
+    // Save Item to Database
+    // ==========================================
+
+    $insert_query = "INSERT INTO items 
+        (item_code, item_name, barcode, category, stock_qty, location, description, image)
+        VALUES 
+        ('$item_code', '$item_name', '$barcode', '$category', '$stock_qty', '$location', '$description', '$image_name')";
+
 
     if (mysqli_query($conn, $insert_query)) {
+
         header("Location: item_list.php?success=1");
         exit();
+
     } else {
-        $message = "<div class='alert alert-danger m-0 border-0 rounded-0'>❌ <b>Error saving record:</b> " . mysqli_error($conn) . "</div>";
+
+        $message = "<div class='alert alert-danger m-0 border-0 rounded-0'>
+            ❌ <b>Error saving record:</b> " .
+            mysqli_error($conn) .
+            "</div>";
     }
 }
 ?>
