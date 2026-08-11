@@ -3,6 +3,7 @@
         "phpoffice/phpspreadsheet": "^5.7",
         "ext-zip": "*",
         "ext-gd": "*",
-        "smalot/pdfparser": "^2.12"
+        "smalot/pdfparser": "^2.12",
+        "cloudinary/cloudinary_php": "^3.1"
     }
 }

@@ -6,10 +6,15 @@ if (!$conn) {
     die("Database Connection Error: " . mysqli_connect_error());
 }
 
-// Helper function to dynamically check file extensions (.jpg, .jpeg, .png, etc.)
+// Helper function to dynamically check file extensions or return full Cloudinary URLs
 function getDynamicImagePath($image_file) {
     if (empty($image_file)) {
         return false;
+    }
+    
+    // Check if the path is already a full Cloudinary or web URL
+    if (filter_var($image_file, FILTER_VALIDATE_URL) || strpos($image_file, 'http://') === 0 || strpos($image_file, 'https://') === 0) {
+        return $image_file;
     }
     
     $image_file = str_replace('\\', '/', $image_file);
@@ -174,7 +179,11 @@ if (isset($_POST['export_excel_action'])) {
 
         $found_path = getDynamicImagePath($image_file);
         if ($found_path !== false) {
-            $web_image_path = $domain_url . $found_path;
+            if (filter_var($found_path, FILTER_VALIDATE_URL) || strpos($found_path, 'http://') === 0 || strpos($found_path, 'https://') === 0) {
+                $web_image_path = $found_path;
+            } else {
+                $web_image_path = $domain_url . $found_path;
+            }
         }
 
         echo '<tr style="height: 60px; vertical-align: middle;">';
@@ -351,43 +360,43 @@ $result = $stmt->get_result();
     <div class="sidebar">
         <div class="logo">WAREHOUSE</div>
         <div class="sidebar-menu">
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/dashboard.php">
+            <a href="dashboard.php">
                 <i class="fa-solid fa-gauge-high"></i> Dashboard
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/item_list.php" class="active">
+            <a href="items/item_list.php" class="active">
                 <i class="fa-solid fa-box-archive"></i> Items
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/add_item.php">
+            <a href="items/add_item.php">
                 <i class="fa-solid fa-plus"></i> Add Item
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/import_excel.php">
+            <a href="import_excel.php">
                 <i class="fa-solid fa-file-import"></i> Import Excel
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/create_job.php">
+            <a href="create_job.php">
                 <i class="fa-solid fa-file-circle-plus"></i> Create Job
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/job_list.php">
+            <a href="job_list.php">
                 <i class="fa-solid fa-file-lines"></i> Job List
             </a>
-            <a href="http://localhost/TIEMAN%20WAREHOUSE/stock/stock_in.php">
+            <a href="stock/stock_in.php">
                 <i class="fa-solid fa-arrow-trend-up"></i> Stock In
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/stock_out.php">
+            <a href="items/stock_out.php">
                 <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/return_item.php">
+            <a href="return_item.php">
                 <i class="fa-solid fa-rotate-left"></i> Returns
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/stock/missing_item.php">
+            <a href="stock/missing_item.php">
                 <i class="fa-solid fa-triangle-exclamation"></i> Missing
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/scaner.php">
+            <a href="scaner.php">
                 <i class="fa-solid fa-barcode"></i> Scanner
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/reports/stock_report.php">
+            <a href="reports/stock_report.php">
                 <i class="fa-solid fa-chart-pie"></i> Reports
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/logout.php">
+            <a href="logout.php">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout
             </a>
         </div>
@@ -576,133 +585,103 @@ $result = $stmt->get_result();
         });
 
         function evaluateCheckboxState() {
-            let activeSelections = 0;
-            standardCheckboxes.forEach(box => { if(box.checked) activeSelections++; });
-            selectedCountLabel.textContent = activeSelections;
-            batchDeleteBar.style.display = (activeSelections > 0) ? 'flex' : 'none';
+            const checkedBoxes = document.querySelectorAll('.row-select-checkbox:checked');
+            selectedCountLabel.textContent = checkedBoxes.length;
+            if (checkedBoxes.length > 0) {
+                batchDeleteBar.style.display = 'flex';
+            } else {
+                batchDeleteBar.style.display = 'none';
+            }
         }
 
         function executeCatalogSearch() {
-            const searchVal = encodeURIComponent(document.getElementById('ui_search').value);
-            const catVal = encodeURIComponent(document.getElementById('ui_category').value);
-            const sortVal = encodeURIComponent(document.getElementById('ui_sort').value);
-            window.location.href = `item_list.php?search=${searchVal}&category_filter=${catVal}&sort_by=${sortVal}`;
+            const query = document.getElementById('ui_search').value;
+            const category = document.getElementById('ui_category').value;
+            const sort = document.getElementById('ui_sort').value;
+            window.location.href = `item_list.php?search=${encodeURIComponent(query)}&category_filter=${encodeURIComponent(category)}&sort_by=${encodeURIComponent(sort)}`;
         }
 
-        document.getElementById('ui_category').addEventListener('change', executeCatalogSearch);
-        document.getElementById('ui_sort').addEventListener('change', executeCatalogSearch);
-
-        let globalShiftX = 20; let activelyHoveredBox = null;
-        document.querySelectorAll('.img-zoom-container').forEach(container => {
-            const popupElement = container.querySelector('.zoom-popup-view');
-            container.addEventListener('mouseenter', () => { activelyHoveredBox = popupElement; activelyHoveredBox.style.setProperty('--shift-x', `${globalShiftX}px`); });
-            container.addEventListener('mouseleave', () => { activelyHoveredBox = null; });
-        });
-        window.addEventListener('keydown', (event) => {
-            if (!activelyHoveredBox) return;
-            if (event.key === 'ArrowRight') { event.preventDefault(); globalShiftX += 15; activelyHoveredBox.style.setProperty('--shift-x', `${globalShiftX}px`); }
-            else if (event.key === 'ArrowLeft') { event.preventDefault(); globalShiftX -= 15; activelyHoveredBox.style.setProperty('--shift-x', `${globalShiftX}px`); }
-        });
-
-        window.addEventListener('scroll', () => {
-            if (window.scrollY > 300) {
-                scrollTopBtn.style.display = 'flex';
-            } else {
-                scrollTopBtn.style.display = 'none';
-            }
-        });
-
-        scrollTopBtn.addEventListener('click', () => {
-            window.scrollTo({
-                top: 0,
-                behavior: 'smooth'
-            });
-        });
-
-        // ==========================================
-        // RIGHT-CLICK CONTEXT MENU & BULK AUTO-SAVE
-        // ==========================================
-        const contextMenu = document.getElementById('dateContextMenu');
-
-        document.querySelectorAll('.date-context-trigger').forEach(target => {
-            target.addEventListener('contextmenu', function(e) {
-                e.preventDefault();
-                contextMenu.style.top = `${e.pageY}px`;
-                contextMenu.style.left = `${e.pageX}px`;
-                contextMenu.style.display = 'block';
-            });
-        });
-
-        // Close context menu when clicking anywhere else
-        document.addEventListener('click', function(e) {
-            if (!contextMenu.contains(e.target)) {
-                contextMenu.style.display = 'none';
-            }
-        });
-
-        function applyAndAutoSaveBulkMonthYear() {
-            const selectedMonthYear = document.getElementById('auto_month_year').value;
-            if (!selectedMonthYear) {
-                alert('Please select a Month and Year first.');
-                return;
-            }
-
-            const dateInputs = document.querySelectorAll('.stock-date-input');
-            const payloadDates = {};
-
-            dateInputs.forEach(input => {
-                const currentVal = input.value;
-                let day = '01';
-
-                if (currentVal && currentVal.split('-').length === 3) {
-                    day = currentVal.split('-')[2];
-                }
-
-                const newFullDate = `${selectedMonthYear}-${day}`;
-                input.value = newFullDate;
-
-                const itemId = input.getAttribute('data-id');
-                payloadDates[itemId] = newFullDate;
-            });
-
-            contextMenu.style.display = 'none';
-            sendBulkDateUpdate(payloadDates);
-        }
-
-        function autoSaveSingleDate(inputElement) {
-            const itemId = inputElement.getAttribute('data-id');
-            const newDate = inputElement.value;
-
-            const payloadDates = {};
-            payloadDates[itemId] = newDate;
-
-            sendBulkDateUpdate(payloadDates);
-        }
-
-        function sendBulkDateUpdate(datesData) {
-            const formData = new FormData();
+        function autoSaveSingleDate(element) {
+            const rowId = element.getAttribute('data-id');
+            const dateVal = element.value;
+            let formData = new FormData();
             formData.append('action', 'update_stock_dates');
-
-            for (const [id, dateVal] of Object.entries(datesData)) {
-                formData.append(`dates[${id}]`, dateVal);
-            }
+            formData.append(`dates[${rowId}]`, dateVal);
 
             fetch('item_list.php', {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
+            .then(res => res.json())
             .then(data => {
-                if (data.status === 'success') {
-                    console.log('Stock date updated successfully:', data.message);
-                } else {
-                    alert('Error updating dates: ' + data.message);
+                if(data.status !== 'success') {
+                    console.error("Failed to auto-save stock date.");
                 }
             })
-            .catch(error => {
-                console.error('AJAX Request Failed:', error);
-            });
+            .catch(err => console.error("Error:", err));
         }
+
+        // Context menu logic for bulk setting month & year
+        const dateContextMenu = document.getElementById('dateContextMenu');
+        document.querySelectorAll('.date-context-trigger').forEach(el => {
+            el.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                dateContextMenu.style.display = 'block';
+                dateContextMenu.style.left = e.pageX + 'px';
+                dateContextMenu.style.top = e.pageY + 'px';
+            });
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!dateContextMenu.contains(e.target)) {
+                dateContextMenu.style.display = 'none';
+            }
+        });
+
+        function applyAndAutoSaveBulkMonthYear() {
+            const monthYearVal = document.getElementById('auto_month_year').value;
+            if (!monthYearVal) return;
+
+            const dateInputs = document.querySelectorAll('.stock-date-input');
+            let formData = new FormData();
+            formData.append('action', 'update_stock_dates');
+
+            dateInputs.forEach(input => {
+                const currentVal = input.value;
+                let day = '01';
+                if (currentVal && currentVal.length >= 10) {
+                    day = currentVal.substring(8, 10);
+                }
+                const newFullDate = `${monthYearVal}-${day}`;
+                input.value = newFullDate;
+                formData.append(`dates[${input.getAttribute('data-id')}]`, newFullDate);
+            });
+
+            fetch('item_list.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    dateContextMenu.style.display = 'none';
+                }
+            })
+            .catch(err => console.error("Error:", err));
+        }
+
+        // Scroll to Top button behavior
+        window.onscroll = function() {
+            if (document.body.scrollTop > 200 || document.documentElement.scrollTop > 200) {
+                scrollTopBtn.style.display = 'flex';
+            } else {
+                scrollTopBtn.style.display = 'none';
+            }
+        };
+
+        scrollTopBtn.addEventListener('click', function() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
     </script>
 </body>
 </html>
