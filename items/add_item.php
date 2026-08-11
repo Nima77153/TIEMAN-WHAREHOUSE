@@ -8,34 +8,92 @@ include('../config/db.php');
 use Cloudinary\Configuration\Configuration;
 use Cloudinary\Api\Upload\UploadApi;
 
-Configuration::instance(getenv('CLOUDINARY_URL'));
+// ==========================================
+// CLOUDINARY CONFIGURATION
+// ==========================================
+
+$cloudinary_url = getenv('CLOUDINARY_URL');
+
+if (!$cloudinary_url) {
+    die(
+        "<div style='
+            background:#fee2e2;
+            color:#991b1b;
+            padding:20px;
+            margin:20px;
+            border-radius:8px;
+            font-family:Arial;
+        '>
+            <b>Cloudinary Configuration Error</b><br><br>
+            CLOUDINARY_URL is not configured in Render Environment Variables.
+        </div>"
+    );
+}
+
+Configuration::instance($cloudinary_url);
+
+// ==========================================
+// DATABASE CHECK
+// ==========================================
 
 if (!$conn) {
-    die("<div class='alert alert-danger m-3'><b>Database Connection Error:</b> " . mysqli_connect_error() . "</div>");
+    die(
+        "<div class='alert alert-danger m-3'>
+            <b>Database Connection Error:</b> " .
+            mysqli_connect_error() .
+        "</div>"
+    );
 }
 
 $message = "";
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
 
-    $item_code = mysqli_real_escape_string($conn, trim($_POST['item_code']));
-    $item_name = mysqli_real_escape_string($conn, trim($_POST['item_name']));
-    $category = mysqli_real_escape_string($conn, trim($_POST['category']));
+    $item_code = mysqli_real_escape_string(
+        $conn,
+        trim($_POST['item_code'])
+    );
+
+    $item_name = mysqli_real_escape_string(
+        $conn,
+        trim($_POST['item_name'])
+    );
+
+    $category = mysqli_real_escape_string(
+        $conn,
+        trim($_POST['category'])
+    );
+
     $stock_qty = intval($_POST['stock_qty']);
-    $location = mysqli_real_escape_string($conn, trim($_POST['location']));
-    $description = mysqli_real_escape_string($conn, trim($_POST['description']));
+
+    $location = mysqli_real_escape_string(
+        $conn,
+        trim($_POST['location'])
+    );
+
+    $description = mysqli_real_escape_string(
+        $conn,
+        trim($_POST['description'])
+    );
+
     $barcode = !empty($_POST['barcode'])
-        ? mysqli_real_escape_string($conn, trim($_POST['barcode']))
+        ? mysqli_real_escape_string(
+            $conn,
+            trim($_POST['barcode'])
+        )
         : $item_code;
 
 
     // ==========================================
-    // Upload Image to Cloudinary
+    // UPLOAD IMAGE TO CLOUDINARY
     // ==========================================
 
     $image_name = "";
 
-    if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
+    if (
+        isset($_FILES['image']) &&
+        $_FILES['image']['error'] === UPLOAD_ERR_OK
+    ) {
 
         try {
 
@@ -49,15 +107,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
                 ]
             );
 
-            // Save Cloudinary permanent URL
+            // Save Cloudinary secure URL
             $image_name = $upload_result['secure_url'];
 
         } catch (Exception $e) {
 
-            $message = "<div class='alert alert-danger m-0 border-0 rounded-0'>
-                ❌ <b>Image upload failed:</b> " .
-                htmlspecialchars($e->getMessage()) .
-                "</div>";
+            $message = "
+                <div class='alert alert-danger m-0 border-0 rounded-0'>
+                    ❌ <b>Image upload failed:</b> " .
+                    htmlspecialchars($e->getMessage()) .
+                "</div>
+            ";
 
             $image_name = "";
         }
@@ -65,13 +125,31 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
 
 
     // ==========================================
-    // Save Item to Database
+    // SAVE ITEM TO DATABASE
     // ==========================================
 
-    $insert_query = "INSERT INTO items 
-        (item_code, item_name, barcode, category, stock_qty, location, description, image)
-        VALUES 
-        ('$item_code', '$item_name', '$barcode', '$category', '$stock_qty', '$location', '$description', '$image_name')";
+    $insert_query = "INSERT INTO items
+        (
+            item_code,
+            item_name,
+            barcode,
+            category,
+            stock_qty,
+            location,
+            description,
+            image
+        )
+        VALUES
+        (
+            '$item_code',
+            '$item_name',
+            '$barcode',
+            '$category',
+            '$stock_qty',
+            '$location',
+            '$description',
+            '$image_name'
+        )";
 
 
     if (mysqli_query($conn, $insert_query)) {
@@ -81,10 +159,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
 
     } else {
 
-        $message = "<div class='alert alert-danger m-0 border-0 rounded-0'>
-            ❌ <b>Error saving record:</b> " .
-            mysqli_error($conn) .
-            "</div>";
+        $message = "
+            <div class='alert alert-danger m-0 border-0 rounded-0'>
+                ❌ <b>Error saving record:</b> " .
+                mysqli_error($conn) .
+            "</div>
+        ";
     }
 }
 ?>
