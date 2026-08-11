@@ -1,32 +1,22 @@
 <?php
 
-// ==========================================
-// DATABASE CONFIGURATION
-// XAMPP LOCAL + RAILWAY ONLINE
-// ==========================================
+// Get database settings from environment variables
+$host     = getenv('MYSQLHOST');
+$user     = getenv('MYSQLUSER');
+$password = getenv('MYSQLPASSWORD');
+$database = getenv('MYSQLDATABASE');
+$port     = getenv('MYSQLPORT');
 
-$host     = getenv('mysql.railway.internal');
-$user     = getenv('root');
-$password = getenv('AAtuqmkJIgjAQnNWlpmfZuDFnWsKVAzG');
-$database = getenv('railway');
-$port     = getenv('3306');
-
-// ==========================================
-// LOCAL XAMPP FALLBACK
-// ==========================================
-
+// Local XAMPP settings
 if (!$host) {
-    $host     = "mysql.railway.internal";
+    $host     = "localhost";
     $user     = "root";
     $password = "";
     $database = "tieman_warehouse";
     $port     = 3306;
 }
 
-// ==========================================
-// DATABASE CONNECTION
-// ==========================================
-
+// Connect to database
 $conn = @mysqli_connect(
     $host,
     $user,
@@ -35,18 +25,12 @@ $conn = @mysqli_connect(
     (int)$port
 );
 
-// ==========================================
-// CONNECTION ERROR
-// ==========================================
-
+// Check connection
 if (!$conn) {
     die("Database Connection Error: " . mysqli_connect_error());
 }
 
-// ==========================================
-// CHARACTER SET
-// ==========================================
-
+// UTF-8 support
 mysqli_set_charset($conn, "utf8mb4");
 
 ?>
