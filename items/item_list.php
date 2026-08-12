@@ -1,6 +1,7 @@
 <?php
 session_start();
 include('../config/db.php');
+include_once('../config/cloudinary.php'); // Required for uploadToCloudinary()
 
 if (!$conn) {
     die("Database Connection Error: " . mysqli_connect_error());
@@ -50,31 +51,47 @@ function getDynamicImagePath($image_file) {
 }
 
 // ==========================================
-// UPLOAD HANDLING BASED ON ITEM CODE
+// CLOUDINARY FILE UPLOAD HANDLER
 // ==========================================
 if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-    $fileTmpPath = $_FILES['image']['tmp_name'];
+    $fileTmpPath   = $_FILES['image']['tmp_name'];
+    $newItemCode   = trim($_POST['item_code']);
     $fileExtension = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
-    
-    // Force clean filename based on item_code instead of keeping "WhatsApp..."
-    $newItemCode = trim($_POST['item_code']);
-    $newFileName = $newItemCode . '.' . strtolower($fileExtension);
-    
-    $uploadFileDir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/';
-    
-    if (!file_exists($uploadFileDir)) {
-        mkdir($uploadFileDir, 0777, true);
-    }
+    $newFileName   = $newItemCode . '.' . strtolower($fileExtension);
 
-    $dest_path = $uploadFileDir . $newFileName;
-    
-    if(move_uploaded_file($fileTmpPath, $dest_path)) {
-        // Save $newFileName into database 'image' column
+    // Upload directly to Cloudinary
+    $cloudinaryUrl = uploadToCloudinary($fileTmpPath, $newFileName);
+
+    if ($cloudinaryUrl) {
+        // Save full HTTPS Cloudinary URL into database
         $stmt = $conn->prepare("UPDATE items SET image = ? WHERE item_code = ?");
-        $stmt->bind_param("ss", $newFileName, $newItemCode);
+        $stmt->bind_param("ss", $cloudinaryUrl, $newItemCode);
         $stmt->execute();
         $stmt->close();
     }
+}
+
+// ==========================================
+// AJAX BACKEND: UPDATE ALL STOCK DATES
+// ==========================================
+if (isset($_POST['action']) && $_POST['action'] === 'update_stock_dates') {
+    header('Content-Type: application/json');
+    $dates = $_POST['dates'] ?? [];
+
+    if (!empty($dates) && is_array($dates)) {
+        $stmt_update = $conn->prepare("UPDATE items SET stock_date = ? WHERE id = ?");
+        foreach ($dates as $id => $date_val) {
+            $clean_id = (int)$id;
+            $clean_date = !empty($date_val) ? $date_val : NULL;
+            $stmt_update->bind_param("si", $clean_date, $clean_id);
+            $stmt_update->execute();
+        }
+        $stmt_update->close();
+        echo json_encode(['status' => 'success', 'message' => 'Stock dates updated automatically!']);
+    } else {
+        echo json_encode(['status' => 'error', 'message' => 'No dates submitted.']);
+    }
+    exit;
 }
 
 // ==========================================
