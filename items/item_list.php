@@ -1452,16 +1452,14 @@ $result = $stmt->get_result();
 
                                 <!-- IMAGE -->
 
-                                <td class="text-center">
-
-                                    <div class="img-zoom-container">
-
-                                        <img
-                                            src="<?= htmlspecialchars($image_src, ENT_QUOTES, 'UTF-8') ?>"
-                                            class="zoomable-thumbnail"
-                                            alt="Item"
-                                            onerror="this.onerror=null; this.src='/assets/images/no-image.png';"
-                                        >
+                             <div class="img-zoom-container">
+    <img
+        src="<?= htmlspecialchars($image_src, ENT_QUOTES, 'UTF-8') ?>"
+        class="zoomable-thumbnail"
+        alt="Item"
+        onerror="this.onerror=null; this.src='<?= htmlspecialchars($fallback_image, ENT_QUOTES, 'UTF-8') ?>';"
+    >
+</div>
 
 
                                         <div class="zoom-popup-view">
