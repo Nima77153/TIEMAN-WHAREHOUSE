@@ -42,15 +42,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
         $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
         
         if (in_array($file_ext, $allowed_extensions)) {
-            // Force clean filename based on item_code
-            $image_filename = $item_code . '.' . $file_ext;
-            
-            $upload_dir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/items/';
+            // Relative target folder setup
+            $upload_dir = '../uploads/items/';
             
             // Ensure destination directory exists with permissions
             if (!file_exists($upload_dir)) {
                 mkdir($upload_dir, 0777, true);
             }
+            
+            // Clean & unique filename generation (handles WhatsApp & special filenames safely)
+            $clean_code = preg_replace('/[^A-Za-z0-9_\-]/', '_', $item_code);
+            $image_filename = 'item_' . time() . '_' . $clean_code . '.' . $file_ext;
             
             $upload_path = $upload_dir . $image_filename;
             
@@ -127,11 +129,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
                     <div class="col-md-4 text-center">
                         <label class="form-label fw-bold text-secondary mb-2 d-block">Current Uploaded Image</label>
                         <div class="preview-card mb-3">
-                            <?php if(!empty($item['image']) && file_exists($_SERVER['DOCUMENT_ROOT'] . "/uploads/items/" . $item['image'])){ ?>
-                                <img id="imageDisplayLink" src="/uploads/items/<?= htmlspecialchars($item['image']) ?>" class="preview-img mb-2" alt="Current Item Asset">
-                            <?php } else { ?>
-                                <img id="imageDisplayLink" src="../assets/images/no-image.png" class="preview-img mb-2" alt="No Asset Image Loaded">
-                            <?php } ?>
+                            <?php 
+                            // Relative path image checking logic
+                            $current_img = '../assets/images/no-image.png';
+                            if (!empty($item['image'])) {
+                                $raw_img = trim($item['image']);
+                                if (preg_match('/^https?:\/\//i', $raw_img)) {
+                                    $current_img = $raw_img;
+                                } elseif (file_exists('../uploads/items/' . $raw_img)) {
+                                    $current_img = '../uploads/items/' . $raw_img;
+                                }
+                            }
+                            ?>
+                            <img id="imageDisplayLink" 
+                                 src="<?= htmlspecialchars($current_img) ?>" 
+                                 class="preview-img mb-2" 
+                                 alt="Current Item Asset"
+                                 onerror="this.onerror=null; this.src='../assets/images/no-image.png';">
                             <div class="small text-muted mt-2">File Upload Preview Matrix Context</div>
                         </div>
                         <div class="text-start">
