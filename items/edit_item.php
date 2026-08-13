@@ -2,6 +2,7 @@
 session_start();
 // Relative path configuration to step back out into main config folder safely
 include('../config/db.php');
+include_once('../config/cloudinary.php'); // Required for uploadToCloudinary()
 
 // Retrieve item record parameters securely
 if (!isset($_GET['id']) || empty($_GET['id'])) {
@@ -30,43 +31,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
     $stock_qty = (int)$_POST['stock_qty'];
     $location = mysqli_real_escape_string($conn, trim($_POST['location']));
     $category = mysqli_real_escape_string($conn, trim($_POST['category'])); // Process Category field
-    
-    $upload_dir = '../uploads/items/';
-    if (!file_exists($upload_dir)) {
-        mkdir($upload_dir, 0777, true);
-    }
 
     // Clean Part No so it creates a safe filename (e.g. "AV-12" -> "AV-12")
     $clean_part_no = preg_replace('/[^A-Za-z0-9_\-]/', '_', $item_code);
-    $image_filename = $item['image']; // Default to existing filename
+    $image_filename = $item['image']; // Default to existing image (URL or legacy local filename)
 
-    // CASE 1: User uploaded a NEW replacement image file
+    // CASE 1: User uploaded a NEW replacement image file -> send it to Cloudinary
+    // (Render's local disk is wiped on every restart/redeploy, so images must
+    // live on Cloudinary to persist, same as add_item.php already does.)
     if (isset($_FILES['new_image']) && $_FILES['new_image']['error'] === UPLOAD_ERR_OK) {
         $file_tmp = $_FILES['new_image']['tmp_name'];
         $original_name = basename($_FILES['new_image']['name']);
         $file_ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
-        
-        $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-        
-        if (in_array($file_ext, $allowed_extensions)) {
-            // Save newly uploaded image named strictly after the Part No
-            $image_filename = $clean_part_no . '.' . $file_ext;
-            $upload_path = $upload_dir . $image_filename;
-            
-            move_uploaded_file($file_tmp, $upload_path);
-        }
-    } 
-    // CASE 2: No new file uploaded, but user changed Part No (e.g. AV-12 -> AV-13)
-    elseif (!empty($item['image']) && file_exists($upload_dir . $item['image'])) {
-        $old_ext = strtolower(pathinfo($item['image'], PATHINFO_EXTENSION));
-        $new_expected_filename = $clean_part_no . '.' . $old_ext;
 
-        // If Part No changed, copy existing image to new Part No name
-        if ($item['image'] !== $new_expected_filename) {
-            copy($upload_dir . $item['image'], $upload_dir . $new_expected_filename);
-            $image_filename = $new_expected_filename;
+        $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+        if (in_array($file_ext, $allowed_extensions)) {
+            $new_file_name = $clean_part_no . '.' . $file_ext;
+
+            $cloudinaryUrl = uploadToCloudinary($file_tmp, $new_file_name);
+
+            if ($cloudinaryUrl) {
+                // Save the full Cloudinary URL, same pattern used everywhere else
+                $image_filename = $cloudinaryUrl;
+            } else {
+                $error_message = "Image upload to Cloudinary failed. Item details were not saved with a new image.";
+            }
         }
     }
+    // CASE 2: No new file uploaded — just keep whatever is already stored
+    // (works whether it's a Cloudinary URL or a legacy local filename from GitHub).
+    // No renaming needed: Cloudinary URLs don't need to match the Part No to work.
 
     // Updated SQL Query to handle saving category column and updated image name
     $update_stmt = $conn->prepare("UPDATE items SET item_code = ?, item_name = ?, description = ?, qty_per_tanker = ?, stock_date = ?, stock_qty = ?, location = ?, image = ?, category = ? WHERE id = ?");
@@ -97,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
         .main { margin-left:250px; padding:20px; }
         .topbar { background:white; padding:15px 20px; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,.1); margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; }
         .card-box { background:white; padding:30px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.08); }
-        
+
         /* Modern Upload Image Card Form Preview Styles */
         .preview-card { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 15px; text-align: center; background: #f8fafc; }
         .preview-img { max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; }
@@ -133,11 +128,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
 
             <form method="POST" enctype="multipart/form-data">
                 <div class="row g-4">
-                    
+
                     <div class="col-md-4 text-center">
                         <label class="form-label fw-bold text-secondary mb-2 d-block">Current Uploaded Image</label>
                         <div class="preview-card mb-3">
-                            <?php 
+                            <?php
                             // Relative path image checking logic
                             $current_img = '../assets/images/no-image.png';
                             if (!empty($item['image'])) {
@@ -168,7 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
                                 <label class="form-label fw-semibold">Part No</label>
                                 <input type="text" name="item_code" class="form-control bg-light fw-bold" value="<?= htmlspecialchars($item['item_code']) ?>" required>
                             </div>
-                            
+
                             <div class="col-md-6">
                                 <label class="form-label fw-semibold">Item Name</label>
                                 <input type="text" name="item_name" class="form-control" value="<?= htmlspecialchars($item['item_name'] ?? $item['description'] ?? '') ?>" required>
@@ -245,5 +240,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
             }
         }
     </script>
+
 </body>
 </html>

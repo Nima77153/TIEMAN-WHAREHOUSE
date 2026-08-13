@@ -8,29 +8,42 @@ if (!$conn) {
 }
 
 // Helper function to dynamically check file extensions or return full Cloudinary URLs
-function getDynamicImagePath($image_file) {
-    if (empty($image_file)) {
-        return 'assets/images/no-image.png'; // Fallback placeholder
-    }
-
-    // If database contains full URL (Cloudinary), return it immediately
-    if (filter_var($image_file, FILTER_VALIDATE_URL) || strpos($image_file, 'http') === 0) {
+function getDynamicImagePath($image_file, $item_code = '') {
+    // 1. Check if database contains full URL (Cloudinary)
+    if (!empty($image_file) && (filter_var($image_file, FILTER_VALIDATE_URL) || strpos($image_file, 'http') === 0)) {
         return $image_file . '?v=' . time(); // Avoid browser caching
     }
 
-    // Otherwise, handle local uploads...
     $search_directories = [
-        $_SERVER['DOCUMENT_ROOT'] . "/uploads/",
-        $_SERVER['DOCUMENT_ROOT'] . "/uploads/items/"
+        $_SERVER['DOCUMENT_ROOT'] . "/uploads/items/",
+        $_SERVER['DOCUMENT_ROOT'] . "/uploads/"
     ];
 
-    foreach ($search_directories as $dir) {
-        if (file_exists($dir . $image_file)) {
-            return str_replace($_SERVER['DOCUMENT_ROOT'], '', $dir . $image_file);
+    $allowed_exts = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+
+    // 2. Priority Check: Match image by Part No (item_code)
+    if (!empty($item_code)) {
+        $clean_code = preg_replace('/[^A-Za-z0-9_\-]/', '_', trim($item_code));
+        foreach ($search_directories as $dir) {
+            foreach ($allowed_exts as $ext) {
+                if (file_exists($dir . $clean_code . '.' . $ext)) {
+                    $rel_path = str_replace($_SERVER['DOCUMENT_ROOT'], '', $dir . $clean_code . '.' . $ext);
+                    return $rel_path . '?v=' . time();
+                }
+            }
         }
     }
 
-    return 'assets/images/no-image.png';
+    // 3. Fallback Check: Direct image filename match from DB column
+    if (!empty($image_file)) {
+        foreach ($search_directories as $dir) {
+            if (file_exists($dir . $image_file)) {
+                return str_replace($_SERVER['DOCUMENT_ROOT'], '', $dir . $image_file);
+            }
+        }
+    }
+
+    return '/assets/images/no-image.png';
 }
 
 // ==========================================
@@ -40,7 +53,8 @@ if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
     $fileTmpPath   = $_FILES['image']['tmp_name'];
     $newItemCode   = trim($_POST['item_code']);
     $fileExtension = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
-    $newFileName   = $newItemCode . '.' . strtolower($fileExtension);
+    $cleanCode     = preg_replace('/[^A-Za-z0-9_\-]/', '_', $newItemCode);
+    $newFileName   = $cleanCode . '.' . strtolower($fileExtension);
 
     // Upload directly to Cloudinary
     $cloudinaryUrl = uploadToCloudinary($fileTmpPath, $newFileName);
@@ -52,29 +66,6 @@ if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
         $stmt->execute();
         $stmt->close();
     }
-}
-
-// ==========================================
-// AJAX BACKEND: UPDATE ALL STOCK DATES
-// ==========================================
-if (isset($_POST['action']) && $_POST['action'] === 'update_stock_dates') {
-    header('Content-Type: application/json');
-    $dates = $_POST['dates'] ?? [];
-
-    if (!empty($dates) && is_array($dates)) {
-        $stmt_update = $conn->prepare("UPDATE items SET stock_date = ? WHERE id = ?");
-        foreach ($dates as $id => $date_val) {
-            $clean_id = (int)$id;
-            $clean_date = !empty($date_val) ? $date_val : NULL;
-            $stmt_update->bind_param("si", $clean_date, $clean_id);
-            $stmt_update->execute();
-        }
-        $stmt_update->close();
-        echo json_encode(['status' => 'success', 'message' => 'Stock dates updated automatically!']);
-    } else {
-        echo json_encode(['status' => 'error', 'message' => 'No dates submitted.']);
-    }
-    exit;
 }
 
 // ==========================================
@@ -129,7 +120,7 @@ if (isset($_POST['export_excel_action'])) {
             $stmt_export = $conn->prepare($export_query);
             $stmt_export->bind_param("ssssss", $search_param, $search_param, $search_param, $search_param, $search_param, $category_filter);
         } else {
-            $export_query = "SELECT * FROM items WHERE item_name LIKE ? OR item_code LIKE ? OR barcode LIKE ? OR description LIKE ? OR location LIKE ?";
+            $export_query = "SELECT * FROM items WHERE item_name LIKE ? OR item_code LIKE ? OR barcode LIKE ? OR description LIKE ? OR location LIKE ? $order_query";
             $stmt_export = $conn->prepare($export_query);
             $stmt_export->bind_param("sssss", $search_param, $search_param, $search_param, $search_param, $search_param);
         }
@@ -177,7 +168,7 @@ if (isset($_POST['export_excel_action'])) {
         $image_file = $row['image'];
         $web_image_path = "";
 
-        $found_path = getDynamicImagePath($image_file);
+        $found_path = getDynamicImagePath($image_file, $row['item_code']);
         if ($found_path !== false) {
             if (filter_var($found_path, FILTER_VALIDATE_URL) || strpos($found_path, 'http://') === 0 || strpos($found_path, 'https://') === 0) {
                 $web_image_path = $found_path;
@@ -360,43 +351,43 @@ $result = $stmt->get_result();
     <div class="sidebar">
         <div class="logo">WAREHOUSE</div>
         <div class="sidebar-menu">
-            <a href="dashboard.php">
+            <a href="../dashboard.php">
                 <i class="fa-solid fa-gauge-high"></i> Dashboard
             </a>
-            <a href="items/item_list.php" class="active">
+            <a href="item_list.php" class="active">
                 <i class="fa-solid fa-box-archive"></i> Items
             </a>
-            <a href="items/add_item.php">
+            <a href="add_item.php">
                 <i class="fa-solid fa-plus"></i> Add Item
             </a>
             <a href="import_excel.php">
                 <i class="fa-solid fa-file-import"></i> Import Excel
             </a>
-            <a href="create_job.php">
+            <a href="../create_job.php">
                 <i class="fa-solid fa-file-circle-plus"></i> Create Job
             </a>
-            <a href="job_list.php">
+            <a href="../job_list.php">
                 <i class="fa-solid fa-file-lines"></i> Job List
             </a>
-            <a href="stock/stock_in.php">
+            <a href="../stock/stock_in.php">
                 <i class="fa-solid fa-arrow-trend-up"></i> Stock In
             </a>
-            <a href="items/stock_out.php">
+            <a href="stock_out.php">
                 <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
             </a>
-            <a href="return_item.php">
+            <a href="../return_item.php">
                 <i class="fa-solid fa-rotate-left"></i> Returns
             </a>
-            <a href="stock/missing_item.php">
+            <a href="../stock/missing_item.php">
                 <i class="fa-solid fa-triangle-exclamation"></i> Missing
             </a>
-            <a href="scaner.php">
+            <a href="../scaner.php">
                 <i class="fa-solid fa-barcode"></i> Scanner
             </a>
-            <a href="reports/stock_report.php">
+            <a href="../reports/stock_report.php">
                 <i class="fa-solid fa-chart-pie"></i> Reports
             </a>
-            <a href="logout.php">
+            <a href="../logout.php">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout
             </a>
         </div>
@@ -493,12 +484,7 @@ $result = $stmt->get_result();
                             <?php if($result->num_rows > 0) {
                                 while($row = $result->fetch_assoc()) { 
                                     $image_file = trim($row['image'] ?? '');
-                                    $image_src = "/assets/images/no-image.png";
-
-                                    $found_path = getDynamicImagePath($image_file);
-                                    if ($found_path !== false) {
-                                        $image_src = $found_path;
-                                    }
+                                    $image_src = getDynamicImagePath($image_file, $row['item_code']);
 
                                     $formatted_stock_date = "";
                                     if (!empty($row['stock_date']) && $row['stock_date'] !== '-') {
@@ -623,12 +609,13 @@ $result = $stmt->get_result();
 
         // Context menu logic for bulk setting month & year
         const dateContextMenu = document.getElementById('dateContextMenu');
+        
         document.querySelectorAll('.date-context-trigger').forEach(el => {
             el.addEventListener('contextmenu', function(e) {
                 e.preventDefault();
-                dateContextMenu.style.display = 'block';
-                dateContextMenu.style.left = e.pageX + 'px';
                 dateContextMenu.style.top = e.pageY + 'px';
+                dateContextMenu.style.left = e.pageX + 'px';
+                dateContextMenu.style.display = 'block';
             });
         });
 
@@ -639,22 +626,17 @@ $result = $stmt->get_result();
         });
 
         function applyAndAutoSaveBulkMonthYear() {
-            const monthYearVal = document.getElementById('auto_month_year').value;
-            if (!monthYearVal) return;
+            const monthVal = document.getElementById('auto_month_year').value;
+            if (!monthVal) return alert('Please select a Month and Year.');
 
-            const dateInputs = document.querySelectorAll('.stock-date-input');
+            const defaultDateStr = monthVal + '-01';
             let formData = new FormData();
             formData.append('action', 'update_stock_dates');
 
-            dateInputs.forEach(input => {
-                const currentVal = input.value;
-                let day = '01';
-                if (currentVal && currentVal.length >= 10) {
-                    day = currentVal.substring(8, 10);
-                }
-                const newFullDate = `${monthYearVal}-${day}`;
-                input.value = newFullDate;
-                formData.append(`dates[${input.getAttribute('data-id')}]`, newFullDate);
+            document.querySelectorAll('.stock-date-input').forEach(input => {
+                input.value = defaultDateStr;
+                const rowId = input.getAttribute('data-id');
+                formData.append(`dates[${rowId}]`, defaultDateStr);
             });
 
             fetch('item_list.php', {
@@ -663,21 +645,22 @@ $result = $stmt->get_result();
             })
             .then(res => res.json())
             .then(data => {
+                dateContextMenu.style.display = 'none';
                 if(data.status === 'success') {
-                    dateContextMenu.style.display = 'none';
+                    alert('✨ Bulk dates updated and auto-saved successfully!');
                 }
             })
             .catch(err => console.error("Error:", err));
         }
 
-        // Scroll to Top button behavior
-        window.onscroll = function() {
-            if (document.body.scrollTop > 200 || document.documentElement.scrollTop > 200) {
+        // Scroll to Top Functionality
+        window.addEventListener('scroll', function() {
+            if (window.scrollY > 300) {
                 scrollTopBtn.style.display = 'flex';
             } else {
                 scrollTopBtn.style.display = 'none';
             }
-        };
+        });
 
         scrollTopBtn.addEventListener('click', function() {
             window.scrollTo({ top: 0, behavior: 'smooth' });

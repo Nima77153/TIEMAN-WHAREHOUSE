@@ -13,24 +13,23 @@ use Cloudinary\Api\Upload\UploadApi;
 // ==========================================
 
 $cloudinary_url = getenv('CLOUDINARY_URL');
+$cloudinary_configured = !empty($cloudinary_url);
 
-if (!$cloudinary_url) {
-    die(
-        "<div style='
-            background:#fee2e2;
-            color:#991b1b;
-            padding:20px;
-            margin:20px;
-            border-radius:8px;
-            font-family:Arial;
-        '>
-            <b>Cloudinary Configuration Error</b><br><br>
-            CLOUDINARY_URL is not configured in Render Environment Variables.
-        </div>"
-    );
+$message = "";
+
+if ($cloudinary_configured) {
+    Configuration::instance($cloudinary_url);
+} else {
+    // Don't kill the whole page anymore - just warn, so the form still works
+    // for adding items (they just won't have an image until this is fixed).
+    $message = "
+        <div class='alert alert-warning m-0 border-0 rounded-0'>
+            ⚠️ <b>Cloudinary is not configured on this server.</b>
+            Image uploads will be skipped until <code>CLOUDINARY_URL</code> is set
+            in your Render Environment Variables. You can still add items without an image.
+        </div>
+    ";
 }
-
-Configuration::instance($cloudinary_url);
 
 // ==========================================
 // DATABASE CHECK
@@ -44,8 +43,6 @@ if (!$conn) {
         "</div>"
     );
 }
-
-$message = "";
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
 
@@ -91,6 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
     $image_name = "";
 
     if (
+        $cloudinary_configured &&
         isset($_FILES['image']) &&
         $_FILES['image']['error'] === UPLOAD_ERR_OK
     ) {
@@ -210,13 +208,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
 
     <div class="main">
         <?= $message ?>
-        
+
         <div class="card-box mt-3">
             <h4 class="mb-4 text-white fw-bold" style="border-left: 5px solid #f97316; padding-left: 10px;">Add New Item</h4>
-            
+
             <form action="add_item.php" method="POST" enctype="multipart/form-data">
                 <div class="row g-4">
-                    
+
                     <div class="col-md-6">
                         <label class="form-label fw-semibold text-light">Item Code / Part No</label>
                         <input type="text" name="item_code" class="form-control form-control-lg" placeholder="e.g. ITM-001" required>
@@ -242,7 +240,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
                             <option value="Liquip Parts">Liquip Parts</option>
                             <option value="Electrical Parts">Electrical Parts</option>
                             <option value="Lamp and fitting parts">Lamp and fitting parts</option>
-                            <option value="Malasyia items">Malaysia</option>
+                            <option value="Malayisa items">Malaysia</option>
                             <option value="China items">China</option>
                         </select>
                     </div>
@@ -266,7 +264,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
 
                     <div class="col-12">
                         <label class="form-label fw-semibold text-light">Product Image</label>
-                        <input type="file" name="image" accept="image/*" class="form-control">
+                        <input type="file" name="image" accept="image/*" class="form-control" <?= $cloudinary_configured ? '' : 'disabled' ?>>
+                        <?php if (!$cloudinary_configured): ?>
+                            <div class="form-text text-warning">Image upload disabled until Cloudinary is configured on the server.</div>
+                        <?php endif; ?>
                     </div>
 
                     <div class="col-12 mt-4">
