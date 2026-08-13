@@ -31,9 +31,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
     $location = mysqli_real_escape_string($conn, trim($_POST['location']));
     $category = mysqli_real_escape_string($conn, trim($_POST['category'])); // Process Category field
     
+    $upload_dir = '../uploads/items/';
+    if (!file_exists($upload_dir)) {
+        mkdir($upload_dir, 0777, true);
+    }
+
+    // Clean Part No so it creates a safe filename (e.g. "AV-12" -> "AV-12")
+    $clean_part_no = preg_replace('/[^A-Za-z0-9_\-]/', '_', $item_code);
     $image_filename = $item['image']; // Default to existing filename
 
-    // Process image file uploads if available
+    // CASE 1: User uploaded a NEW replacement image file
     if (isset($_FILES['new_image']) && $_FILES['new_image']['error'] === UPLOAD_ERR_OK) {
         $file_tmp = $_FILES['new_image']['tmp_name'];
         $original_name = basename($_FILES['new_image']['name']);
@@ -42,25 +49,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
         $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
         
         if (in_array($file_ext, $allowed_extensions)) {
-            // Relative target folder setup
-            $upload_dir = '../uploads/items/';
-            
-            // Ensure destination directory exists with permissions
-            if (!file_exists($upload_dir)) {
-                mkdir($upload_dir, 0777, true);
-            }
-            
-            // Clean & unique filename generation (handles WhatsApp & special filenames safely)
-            $clean_code = preg_replace('/[^A-Za-z0-9_\-]/', '_', $item_code);
-            $image_filename = 'item_' . time() . '_' . $clean_code . '.' . $file_ext;
-            
+            // Save newly uploaded image named strictly after the Part No
+            $image_filename = $clean_part_no . '.' . $file_ext;
             $upload_path = $upload_dir . $image_filename;
             
             move_uploaded_file($file_tmp, $upload_path);
         }
+    } 
+    // CASE 2: No new file uploaded, but user changed Part No (e.g. AV-12 -> AV-13)
+    elseif (!empty($item['image']) && file_exists($upload_dir . $item['image'])) {
+        $old_ext = strtolower(pathinfo($item['image'], PATHINFO_EXTENSION));
+        $new_expected_filename = $clean_part_no . '.' . $old_ext;
+
+        // If Part No changed, copy existing image to new Part No name
+        if ($item['image'] !== $new_expected_filename) {
+            copy($upload_dir . $item['image'], $upload_dir . $new_expected_filename);
+            $image_filename = $new_expected_filename;
+        }
     }
 
-    // Updated SQL Query to handle saving category column
+    // Updated SQL Query to handle saving category column and updated image name
     $update_stmt = $conn->prepare("UPDATE items SET item_code = ?, item_name = ?, description = ?, qty_per_tanker = ?, stock_date = ?, stock_qty = ?, location = ?, image = ?, category = ? WHERE id = ?");
     $update_stmt->bind_param("sssssisssi", $item_code, $item_name, $description, $qty_per_tanker, $stock_date, $stock_qty, $location, $image_filename, $category, $id);
 
