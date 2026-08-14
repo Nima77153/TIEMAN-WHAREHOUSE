@@ -408,7 +408,12 @@ $result = $stmt->get_result();
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h3>Item Log Catalog View</h3>
                     <div class="d-flex gap-2">
-                        <a href="../barcode/print_barcode.php" target="_blank" class="btn btn-dark d-flex align-items-center">📋 Print Selected Barcodes</a>
+                        <button type="button"
+        id="printSelectedBarcodeBtn"
+        class="btn btn-dark d-flex align-items-center"
+        onclick="printSelectedBarcodes(); return false;">
+    📋 Print Selected Barcodes
+</button>
                         <button type="submit" name="export_excel_action" class="btn btn-success d-flex align-items-center">📥 Export Excel</button>
                         <a href="add_item.php" class="btn btn-warning d-flex align-items-center">+ Add Item</a>
                     </div>
@@ -496,10 +501,10 @@ $result = $stmt->get_result();
                                 ?>
                                 <tr>
                                     <td class="text-center">
-                                    <input type="checkbox"
+                                   <input type="checkbox"
        name="selected_items[]"
        value="<?= $row['id'] ?>"
-       data-item-code="<?= htmlspecialchars($row['item_code']) ?>"
+       data-item-code="<?= htmlspecialchars($row['item_code'], ENT_QUOTES) ?>"
        class="form-check-input row-select-checkbox"
        onclick="evaluateCheckboxState()">
                                     </td>
