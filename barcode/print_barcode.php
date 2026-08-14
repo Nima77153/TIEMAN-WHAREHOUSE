@@ -2,144 +2,278 @@
 session_start();
 include('../config/db.php');
 
-// Collect either a single item code string or an array of checked item codes
+// =====================================================
+// GET SELECTED ITEM CODES
+// =====================================================
+
 $item_codes = [];
 
 if (isset($_GET['codes']) && is_array($_GET['codes'])) {
+
     $item_codes = array_map('trim', $_GET['codes']);
+
 } elseif (isset($_GET['code']) && !empty($_GET['code'])) {
+
     $item_codes[] = trim($_GET['code']);
+
 }
 
-// Show error if no items selected
+
+// Remove empty values and duplicates
+$item_codes = array_values(
+    array_unique(
+        array_filter($item_codes, function ($value) {
+            return $value !== '';
+        })
+    )
+);
+
+
+// =====================================================
+// ERROR IF NOTHING SELECTED
+// =====================================================
+
 if (empty($item_codes)) {
-    die("<div style='text-align:center; margin-top:50px; font-family:sans-serif;'>
-            <h4 style='color:red;'>Error: Please select at least one item checkbox from the catalog list.</h4>
+
+    die("
+        <div style='
+            text-align:center;
+            margin-top:50px;
+            font-family:sans-serif;
+        '>
+
+            <h4 style='color:red;'>
+                Error: Please select at least one item checkbox from the catalog list.
+            </h4>
+
             <a href='../items/item_list.php'
-               style='display:inline-block; padding:10px 20px; background:#4b5563; color:white; text-decoration:none; border-radius:6px; font-weight:bold;'>
-               ⬅️ Back to Item List
+               style='
+                    display:inline-block;
+                    padding:10px 20px;
+                    background:#4b5563;
+                    color:white;
+                    text-decoration:none;
+                    border-radius:6px;
+                    font-weight:bold;
+               '>
+                ⬅️ Back to Item List
             </a>
-         </div>");
+
+        </div>
+    ");
+
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
+
     <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>Print Multiple Labels Asset Tracker</title>
 
+
     <style>
+
+        /* =====================================================
+           GENERAL
+        ===================================================== */
 
         * {
             box-sizing: border-box;
         }
 
         body {
+
             background: #525659;
+
             font-family: 'Segoe UI', Arial, sans-serif;
+
             margin: 0;
+
             padding: 20px;
+
         }
 
-        /* ================================
+
+        /* =====================================================
            CONTROL PANEL
-        ================================= */
+        ===================================================== */
 
         .print-control-panel {
+
             background: white;
-            max-width: 900px;
+
+            max-width: 950px;
+
             margin: 0 auto 25px auto;
+
             padding: 18px 20px;
+
             border-radius: 10px;
+
             box-shadow: 0 3px 12px rgba(0,0,0,0.25);
+
             text-align: center;
+
         }
+
 
         .control-title {
-            font-size: 18px;
+
+            font-size: 20px;
+
             font-weight: bold;
+
             color: #111827;
+
             margin-bottom: 15px;
+
         }
+
 
         .size-control {
+
             display: inline-flex;
+
             align-items: center;
+
             gap: 10px;
-            margin: 5px 15px 5px 0;
+
+            margin: 5px 12px 5px 0;
+
         }
+
 
         .size-control label {
+
             font-weight: bold;
+
             color: #374151;
+
         }
+
 
         .size-select {
+
             padding: 9px 12px;
-            min-width: 190px;
+
+            min-width: 200px;
+
             border: 1px solid #9ca3af;
+
             border-radius: 6px;
+
             background: white;
+
             font-size: 14px;
+
             font-weight: 600;
+
             cursor: pointer;
+
         }
+
 
         .page-info {
+
             display: inline-block;
+
             background: #f3f4f6;
+
             color: #374151;
+
             padding: 9px 14px;
+
             border-radius: 6px;
+
             font-size: 14px;
+
             font-weight: 600;
+
             margin: 5px;
+
         }
+
 
         .btn-back {
+
             display: inline-block;
+
             background: #4b5563;
+
             color: white;
+
             text-decoration: none;
+
             padding: 10px 18px;
+
             font-size: 14px;
+
             font-weight: bold;
+
             border-radius: 6px;
+
             margin: 5px;
+
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+
         }
+
 
         .btn-back:hover {
+
             background: #374151;
+
         }
+
 
         .btn-print {
+
             display: inline-block;
+
             background: #f97316;
+
             color: white;
+
             border: none;
+
             padding: 10px 18px;
+
             font-size: 14px;
+
             font-weight: bold;
+
             border-radius: 6px;
+
             cursor: pointer;
+
             margin: 5px;
+
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+
         }
+
 
         .btn-print:hover {
+
             background: #ea580c;
+
         }
 
 
-        /* ================================
-           LABEL AREA
-        ================================= */
+        /* =====================================================
+           LABEL CONTAINER
+        ===================================================== */
 
         .labels-grid-container {
 
             display: flex;
+
             flex-wrap: wrap;
 
             gap: 5mm;
@@ -153,15 +287,17 @@ if (empty($item_codes)) {
         }
 
 
-        /* ================================
-           LABEL
-        ================================= */
+        /* =====================================================
+           DEFAULT LABEL
+           STANDARD = 70 x 30 MM
+        ===================================================== */
 
         .print-label-card {
 
             background: white;
 
             width: 70mm;
+
             height: 30mm;
 
             padding: 3mm;
@@ -187,59 +323,42 @@ if (empty($item_codes)) {
         }
 
 
-        /* ================================
-           COMPANY HEADER
-        ================================= */
-
-        .company-header {
-
-            font-size: 9pt;
-
-            font-weight: 800;
-
-            color: #111;
-
-            letter-spacing: 1.2px;
-
-            text-transform: uppercase;
-
-            border-bottom: 0.3mm dashed #aaa;
-
-            padding-bottom: 1.5mm;
-
-            margin-bottom: 1mm;
-
-        }
-
-
-        /* ================================
+        /* =====================================================
            ITEM NAME
-        ================================= */
+        ===================================================== */
 
         .item-title {
 
-            font-size: 9pt;
+            font-size: 12pt;
 
-            font-weight: 600;
+            font-weight: 700;
 
-            color: #333;
+            color: #111;
 
-            line-height: 1.2;
+            line-height: 1.15;
 
-            min-height: 5mm;
+            min-height: 7mm;
 
-            max-height: 7mm;
+            max-height: 11mm;
 
             overflow: hidden;
 
             text-overflow: ellipsis;
 
+            text-align: center;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
         }
 
 
-        /* ================================
+        /* =====================================================
            BARCODE
-        ================================= */
+        ===================================================== */
 
         .barcode-display-wrapper {
 
@@ -259,15 +378,16 @@ if (empty($item_codes)) {
 
         }
 
+
         .barcode-img {
 
-            width: 90%;
+            width: 92%;
 
             max-width: 100%;
 
             height: auto;
 
-            max-height: 14mm;
+            max-height: 15mm;
 
             display: block;
 
@@ -276,9 +396,9 @@ if (empty($item_codes)) {
         }
 
 
-        /* ================================
+        /* =====================================================
            FOOTER
-        ================================= */
+        ===================================================== */
 
         .metadata-footer-grid {
 
@@ -290,15 +410,18 @@ if (empty($item_codes)) {
 
             width: 100%;
 
-            border-top: 0.25mm solid #ddd;
+            border-top: 0.25mm solid #999;
 
-            padding-top: 1mm;
+            padding-top: 1.5mm;
 
-            font-size: 7pt;
+            font-size: 8pt;
+
+            font-weight: 600;
 
             white-space: nowrap;
 
         }
+
 
         .bin-badge {
 
@@ -307,6 +430,8 @@ if (empty($item_codes)) {
             color: white;
 
             padding: 0.8mm 1.5mm;
+
+            font-size: 8pt;
 
             font-weight: bold;
 
@@ -317,7 +442,7 @@ if (empty($item_codes)) {
 
         /* =====================================================
            SMALL
-           50 x 30 mm
+           50 x 30 MM
         ===================================================== */
 
         body.size-small .print-label-card {
@@ -330,27 +455,44 @@ if (empty($item_codes)) {
 
         }
 
-        body.size-small .company-header {
-            font-size: 7pt;
-            letter-spacing: 0.8px;
-        }
 
         body.size-small .item-title {
-            font-size: 7pt;
+
+            font-size: 9pt;
+
+            min-height: 6mm;
+
+            max-height: 9mm;
+
         }
+
 
         body.size-small .barcode-img {
+
             max-height: 14mm;
+
+            width: 90%;
+
         }
 
+
         body.size-small .metadata-footer-grid {
-            font-size: 6pt;
+
+            font-size: 6.5pt;
+
+        }
+
+
+        body.size-small .bin-badge {
+
+            font-size: 6.5pt;
+
         }
 
 
         /* =====================================================
            MEDIUM
-           60 x 40 mm
+           60 x 40 MM
         ===================================================== */
 
         body.size-medium .print-label-card {
@@ -363,26 +505,44 @@ if (empty($item_codes)) {
 
         }
 
-        body.size-medium .company-header {
-            font-size: 8pt;
-        }
 
         body.size-medium .item-title {
-            font-size: 8pt;
+
+            font-size: 11pt;
+
+            min-height: 7mm;
+
+            max-height: 11mm;
+
         }
+
 
         body.size-medium .barcode-img {
+
             max-height: 20mm;
+
+            width: 92%;
+
         }
 
+
         body.size-medium .metadata-footer-grid {
-            font-size: 6.5pt;
+
+            font-size: 7.5pt;
+
+        }
+
+
+        body.size-medium .bin-badge {
+
+            font-size: 7.5pt;
+
         }
 
 
         /* =====================================================
            STANDARD
-           70 x 30 mm
+           70 x 30 MM
         ===================================================== */
 
         body.size-standard .print-label-card {
@@ -398,7 +558,7 @@ if (empty($item_codes)) {
 
         /* =====================================================
            LARGE
-           80 x 50 mm
+           80 x 50 MM
         ===================================================== */
 
         body.size-large .print-label-card {
@@ -411,51 +571,10 @@ if (empty($item_codes)) {
 
         }
 
-        body.size-large .company-header {
-            font-size: 10pt;
-        }
 
         body.size-large .item-title {
-            font-size: 10pt;
-        }
 
-        body.size-large .barcode-img {
-            max-height: 27mm;
-        }
-
-        body.size-large .metadata-footer-grid {
-            font-size: 7.5pt;
-        }
-
-
-        /* =====================================================
-           60 x 80 MM
-           PORTRAIT
-        ===================================================== */
-
-        body.size-6080 .print-label-card {
-
-            width: 60mm;
-
-            height: 80mm;
-
-            padding: 4mm;
-
-        }
-
-        body.size-6080 .company-header {
-
-            font-size: 10pt;
-
-            letter-spacing: 1.2px;
-
-            padding-bottom: 2mm;
-
-        }
-
-        body.size-6080 .item-title {
-
-            font-size: 10pt;
+            font-size: 13pt;
 
             min-height: 8mm;
 
@@ -463,32 +582,108 @@ if (empty($item_codes)) {
 
         }
 
-        body.size-6080 .barcode-display-wrapper {
 
-            padding: 3mm 0;
+        body.size-large .barcode-img {
 
-        }
+            max-height: 27mm;
 
-        body.size-6080 .barcode-img {
-
-            width: 95%;
-
-            max-height: 42mm;
+            width: 94%;
 
         }
 
-        body.size-6080 .metadata-footer-grid {
 
-            font-size: 8pt;
+        body.size-large .metadata-footer-grid {
+
+            font-size: 9pt;
 
             padding-top: 2mm;
 
         }
 
 
-        /* ================================
-           PRINT
-        ================================= */
+        body.size-large .bin-badge {
+
+            font-size: 9pt;
+
+        }
+
+
+        /* =====================================================
+           80 x 60 MM
+           LANDSCAPE
+        ===================================================== */
+
+        body.size-8060 .print-label-card {
+
+            width: 80mm;
+
+            height: 60mm;
+
+            padding: 4mm;
+
+        }
+
+
+        body.size-8060 .item-title {
+
+            font-size: 14pt;
+
+            font-weight: 700;
+
+            min-height: 9mm;
+
+            max-height: 14mm;
+
+        }
+
+
+        body.size-8060 .barcode-display-wrapper {
+
+            flex: 1;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
+            padding: 2mm 0;
+
+            overflow: hidden;
+
+        }
+
+
+        body.size-8060 .barcode-img {
+
+            width: 94%;
+
+            max-width: 100%;
+
+            max-height: 32mm;
+
+        }
+
+
+        body.size-8060 .metadata-footer-grid {
+
+            font-size: 9pt;
+
+            padding-top: 2mm;
+
+        }
+
+
+        body.size-8060 .bin-badge {
+
+            font-size: 9pt;
+
+        }
+
+
+        /* =====================================================
+           PRINT SETTINGS
+        ===================================================== */
 
         @media print {
 
@@ -499,6 +694,7 @@ if (empty($item_codes)) {
                 margin: 5mm;
 
             }
+
 
             html,
             body {
@@ -511,11 +707,13 @@ if (empty($item_codes)) {
 
             }
 
+
             .print-control-panel {
 
                 display: none !important;
 
             }
+
 
             .labels-grid-container {
 
@@ -535,6 +733,7 @@ if (empty($item_codes)) {
 
             }
 
+
             .print-label-card {
 
                 box-shadow: none;
@@ -550,71 +749,96 @@ if (empty($item_codes)) {
         }
 
 
-        /* ================================
-           MOBILE PREVIEW
-        ================================= */
+        /* =====================================================
+           MOBILE
+        ===================================================== */
 
         @media screen and (max-width: 700px) {
 
             .print-control-panel {
+
                 text-align: left;
+
             }
+
 
             .size-control {
-                display: flex;
-                flex-direction: column;
-                align-items: flex-start;
-            }
 
-            .labels-grid-container {
-                transform-origin: top center;
+                display: flex;
+
+                flex-direction: column;
+
+                align-items: flex-start;
+
             }
 
         }
 
     </style>
+
 </head>
+
 
 <body class="size-standard">
 
 
     <!-- =====================================================
-         CONTROL PANEL
-    ====================================================== -->
+         PRINT CONTROL PANEL
+    ===================================================== -->
 
     <div class="print-control-panel">
 
+
         <div class="control-title">
+
             🖨️ Barcode Label Printing
+
         </div>
 
 
         <div class="size-control">
 
             <label for="labelSize">
+
                 Label Size:
+
             </label>
+
 
             <select id="labelSize" class="size-select">
 
                 <option value="small">
+
                     Small - 50 × 30 mm
+
                 </option>
+
 
                 <option value="medium">
+
                     Medium - 60 × 40 mm
+
                 </option>
+
 
                 <option value="standard" selected>
+
                     Standard - 70 × 30 mm
+
                 </option>
+
 
                 <option value="large">
+
                     Large - 80 × 50 mm
+
                 </option>
 
-                <option value="6080">
-                    60 × 80 mm
+
+                <option value="8060">
+
+                    80 × 60 mm
+
                 </option>
 
             </select>
@@ -624,7 +848,9 @@ if (empty($item_codes)) {
 
         <div class="page-info">
 
-            A4: <span id="pageCount">18</span> labels/page
+            A4:
+            <span id="pageCount">18</span>
+            labels/page
 
         </div>
 
@@ -641,14 +867,22 @@ if (empty($item_codes)) {
         <br>
 
 
-        <a href="../items/item_list.php" class="btn-back">
+        <a href="../items/item_list.php"
+           class="btn-back">
+
             ⬅️ Back to Item List
+
         </a>
 
 
-        <button class="btn-print" onclick="window.print()">
+        <button
+            class="btn-print"
+            onclick="window.print()">
+
             🖨️ Print All Selected Barcodes
+
         </button>
+
 
     </div>
 
@@ -656,13 +890,15 @@ if (empty($item_codes)) {
 
     <!-- =====================================================
          LABELS
-    ====================================================== -->
+    ===================================================== -->
 
     <div class="labels-grid-container">
+
 
         <?php
 
         foreach ($item_codes as $code) {
+
 
             $stmt = $conn->prepare("
                 SELECT item_name, description, location
@@ -671,11 +907,15 @@ if (empty($item_codes)) {
                 LIMIT 1
             ");
 
+
             $stmt->bind_param("s", $code);
+
 
             $stmt->execute();
 
+
             $meta_result = $stmt->get_result();
+
 
             $item_info = $meta_result->fetch_assoc();
 
@@ -690,9 +930,9 @@ if (empty($item_codes)) {
                 : 'N/A';
 
 
-            /*
-             * Barcode generated from item code
-             */
+            // =================================================
+            // BARCODE URL
+            // =================================================
 
             $barcode_url =
                 "https://bwipjs-api.metafloor.com/?" .
@@ -704,16 +944,11 @@ if (empty($item_codes)) {
 
         ?>
 
+
             <div class="print-label-card">
 
 
-                <div class="company-header">
-
-                    TIEMAN WAREHOUSE SYSTEM
-
-                </div>
-
-
+                <!-- ITEM NAME ONLY -->
                 <div class="item-title">
 
                     <?= htmlspecialchars($display_name) ?>
@@ -721,6 +956,7 @@ if (empty($item_codes)) {
                 </div>
 
 
+                <!-- BARCODE -->
                 <div class="barcode-display-wrapper">
 
                     <img
@@ -732,6 +968,7 @@ if (empty($item_codes)) {
                 </div>
 
 
+                <!-- PART NO + LOCATION -->
                 <div class="metadata-footer-grid">
 
 
@@ -762,66 +999,97 @@ if (empty($item_codes)) {
 
             </div>
 
+
         <?php
 
         }
 
         ?>
 
+
     </div>
 
 
 
     <!-- =====================================================
-         SIZE CONTROL JAVASCRIPT
-    ====================================================== -->
+         SIZE SELECTION JAVASCRIPT
+    ===================================================== -->
 
     <script>
 
-        const labelSize = document.getElementById("labelSize");
 
-        const pageCount = document.getElementById("pageCount");
+        const labelSize =
+            document.getElementById('labelSize');
+
+
+        const pageCount =
+            document.getElementById('pageCount');
 
 
         /*
-         * Approximate A4 calculation.
+         * A4 page:
          *
-         * A4 = 210 x 297 mm
+         * 210 x 297 mm
          *
-         * Printable area after 5mm margins:
-         * 200 x 287 mm
+         * Approximately 200 x 287 mm
+         * printable area with 5mm margins.
          */
 
         const sizes = {
 
+
             small: {
+
                 width: 50,
+
                 height: 30,
+
                 perPage: 36
+
             },
+
 
             medium: {
+
                 width: 60,
+
                 height: 40,
+
                 perPage: 21
+
             },
+
 
             standard: {
+
                 width: 70,
+
                 height: 30,
+
                 perPage: 18
+
             },
+
 
             large: {
+
                 width: 80,
+
                 height: 50,
+
                 perPage: 12
+
             },
 
-            6080: {
-                width: 60,
-                height: 80,
-                perPage: 9
+
+            8060: {
+
+                width: 80,
+
+                height: 60,
+
+                perPage: 8
+
             }
 
         };
@@ -829,33 +1097,32 @@ if (empty($item_codes)) {
 
         function changeLabelSize() {
 
-            const selected = labelSize.value;
 
-            /*
-             * Remove old size classes
-             */
+            const selected =
+                labelSize.value;
+
 
             document.body.classList.remove(
-                "size-small",
-                "size-medium",
-                "size-standard",
-                "size-large",
-                "size-6080"
+
+                'size-small',
+
+                'size-medium',
+
+                'size-standard',
+
+                'size-large',
+
+                'size-8060'
+
             );
 
-
-            /*
-             * Add selected size
-             */
 
             document.body.classList.add(
-                "size-" + selected
+
+                'size-' + selected
+
             );
 
-
-            /*
-             * Update A4 information
-             */
 
             pageCount.textContent =
                 sizes[selected].perPage;
@@ -864,19 +1131,17 @@ if (empty($item_codes)) {
 
 
         labelSize.addEventListener(
-            "change",
+            'change',
             changeLabelSize
         );
 
 
-        /*
-         * Set default size
-         */
-
         changeLabelSize();
+
 
     </script>
 
 
 </body>
+
 </html>

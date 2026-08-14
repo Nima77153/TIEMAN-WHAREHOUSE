@@ -496,7 +496,12 @@ $result = $stmt->get_result();
                                 ?>
                                 <tr>
                                     <td class="text-center">
-                                        <input type="checkbox" name="selected_items[]" value="<?= $row['id'] ?>" class="form-check-input row-select-checkbox" onclick="evaluateCheckboxState()">
+                                    <input type="checkbox"
+       name="selected_items[]"
+       value="<?= $row['id'] ?>"
+       data-item-code="<?= htmlspecialchars($row['item_code']) ?>"
+       class="form-check-input row-select-checkbox"
+       onclick="evaluateCheckboxState()">
                                     </td>
                                     <td class="text-center">
                                         <div class="img-zoom-container">
@@ -665,6 +670,40 @@ $result = $stmt->get_result();
         scrollTopBtn.addEventListener('click', function() {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
+function printSelectedBarcodes() {
+
+    const checkedBoxes = document.querySelectorAll(
+        '.row-select-checkbox:checked'
+    );
+
+    if (checkedBoxes.length === 0) {
+        alert('Please select at least one item to print.');
+        return;
+    }
+
+    const params = new URLSearchParams();
+
+    checkedBoxes.forEach(function (checkbox) {
+
+        const itemCode = checkbox.getAttribute('data-item-code');
+
+        if (itemCode) {
+            params.append('codes[]', itemCode);
+        }
+
+    });
+
+    if (params.toString() === '') {
+        alert('No valid item codes were selected.');
+        return;
+    }
+
+    window.open(
+        '../barcode/print_barcode.php?' + params.toString(),
+        '_blank'
+    );
+}
+
     </script>
 </body>
 </html>
