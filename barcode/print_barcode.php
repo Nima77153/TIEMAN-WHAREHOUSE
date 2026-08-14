@@ -2,11 +2,13 @@
 session_start();
 include('../config/db.php');
 
+
 /* =========================================================
    GET SELECTED ITEM CODES
    ========================================================= */
 
 $item_codes = [];
+
 
 /* Multiple selected items */
 if (isset($_GET['codes'])) {
@@ -32,6 +34,7 @@ if (isset($_GET['codes'])) {
     }
 }
 
+
 /* Single item */
 if (
     empty($item_codes) &&
@@ -42,12 +45,13 @@ if (
     $item_codes[] = trim($_GET['code']);
 }
 
+
 /* Remove duplicate item codes */
 $item_codes = array_values(array_unique($item_codes));
 
 
 /* =========================================================
-   NO ITEM SELECTED
+   ERROR IF NOTHING SELECTED
    ========================================================= */
 
 if (empty($item_codes)) {
@@ -83,53 +87,74 @@ if (empty($item_codes)) {
 
 
 /* =========================================================
-   LABEL SIZE
-   DEFAULT = 80 x 60 MM
+   CLEAN DISPLAY TEXT
+   ---------------------------------------------------------
+   Removes unwanted backslashes before quotation marks.
+
+   Example:
+
+   1/4\\\\\\\" BLACK
+
+   becomes:
+
+   1/4" BLACK
+
+   This ONLY changes what is displayed on the barcode.
+   It does NOT change the database.
    ========================================================= */
 
-$label_size = isset($_GET['size']) ? $_GET['size'] : '80x60';
+function cleanBarcodeText($text)
+{
+    if ($text === null) {
+        return '';
+    }
 
-$allowed_sizes = [
+    $text = (string)$text;
 
-    '60x40' => [
-        'width'  => 60,
-        'height' => 40,
-        'name'   => 'Small - 60 × 40 mm'
-    ],
+    /*
+     * Remove backslashes immediately before "
+     *
+     * Example:
+     * \"
+     * \\"
+     * \\\"
+     *
+     * all become:
+     * "
+     */
+    $text = preg_replace('/\\\\+(?=")/', '', $text);
 
-    '70x50' => [
-        'width'  => 70,
-        'height' => 50,
-        'name'   => 'Medium - 70 × 50 mm'
-    ],
+    /*
+     * Remove backslashes immediately before '
+     * if your data contains them.
+     */
+    $text = preg_replace("/\\\\+(?=')/", "'", $text);
 
-    '80x60' => [
-        'width'  => 80,
-        'height' => 60,
-        'name'   => 'Standard - 80 × 60 mm'
-    ],
+    /*
+     * Remove repeated escaping around quotation marks.
+     */
+    $text = str_replace('\\"', '"', $text);
 
-    '100x70' => [
-        'width'  => 100,
-        'height' => 70,
-        'name'   => 'Large - 100 × 70 mm'
-    ]
-
-];
-
-if (!isset($allowed_sizes[$label_size])) {
-    $label_size = '80x60';
+    return trim($text);
 }
-
-$label_width  = $allowed_sizes[$label_size]['width'];
-$label_height = $allowed_sizes[$label_size]['height'];
 
 
 /* =========================================================
-   FONT SIZE OPTION
+   LABEL SIZE
+   DEFAULT = 80 × 60 MM HORIZONTAL
    ========================================================= */
 
-$font_option = isset($_GET['font']) ? $_GET['font'] : 'auto';
+$label_size = '80x60';
+
+
+/* =========================================================
+   FONT OPTION
+   ========================================================= */
+
+$font_option = isset($_GET['font'])
+    ? $_GET['font']
+    : 'auto';
+
 
 $allowed_fonts = [
     'auto',
@@ -138,21 +163,34 @@ $allowed_fonts = [
     'large'
 ];
 
-if (!in_array($font_option, $allowed_fonts)) {
+
+if (!in_array($font_option, $allowed_fonts, true)) {
     $font_option = 'auto';
 }
 
 
 /* =========================================================
-   A4 CALCULATION
-   A4 = 210 × 297 MM
+   A4 INFORMATION
    ========================================================= */
 
 $a4_width = 210;
 $a4_height = 297;
 
-$horizontal_fit = max(1, floor($a4_width / $label_width));
-$vertical_fit   = max(1, floor($a4_height / $label_height));
+$label_width = 80;
+$label_height = 60;
+
+
+/*
+ * A4 portrait:
+ *
+ * 210 / 80 = 2 labels across
+ * 297 / 60 = 4 labels down
+ *
+ * Approximately 8 labels per A4.
+ */
+
+$horizontal_fit = floor($a4_width / $label_width);
+$vertical_fit = floor($a4_height / $label_height);
 
 $labels_per_a4 = $horizontal_fit * $vertical_fit;
 
@@ -184,7 +222,10 @@ if ($font_option === 'large') {
 
 <meta charset="UTF-8">
 
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
 
 <title>Print Barcode Labels</title>
 
@@ -192,18 +233,22 @@ if ($font_option === 'large') {
 <style>
 
 /* =========================================================
-   PAGE
+   GENERAL
    ========================================================= */
 
 * {
     box-sizing: border-box;
 }
 
+
+html,
 body {
-
     margin: 0;
+    padding: 0;
+}
 
-    padding: 20px;
+
+body {
 
     background: #525659;
 
@@ -211,6 +256,8 @@ body {
         Arial,
         "Segoe UI",
         sans-serif;
+
+    padding: 20px;
 }
 
 
@@ -251,7 +298,7 @@ body {
 
     align-items: center;
 
-    gap: 6px;
+    gap: 7px;
 }
 
 
@@ -269,7 +316,7 @@ body {
 
     height: 40px;
 
-    padding: 0 10px;
+    padding: 0 12px;
 
     border: 1px solid #cbd5e1;
 
@@ -278,6 +325,10 @@ body {
     background: white;
 
     font-size: 14px;
+
+    font-weight: 600;
+
+    cursor: pointer;
 }
 
 
@@ -350,7 +401,7 @@ body {
 
 
 /* =========================================================
-   LABELS AREA
+   LABEL AREA
    ========================================================= */
 
 .labels-grid-container {
@@ -372,22 +423,22 @@ body {
 
 
 /* =========================================================
-   PRINT LABEL
+   80 × 60 MM HORIZONTAL LABEL
    ========================================================= */
 
 .print-label-card {
 
-    width: <?= $label_width ?>mm;
+    width: 80mm;
 
-    height: <?= $label_height ?>mm;
+    height: 60mm;
 
-    min-width: <?= $label_width ?>mm;
+    min-width: 80mm;
 
-    min-height: <?= $label_height ?>mm;
+    min-height: 60mm;
 
-    max-width: <?= $label_width ?>mm;
+    max-width: 80mm;
 
-    max-height: <?= $label_height ?>mm;
+    max-height: 60mm;
 
     background: white;
 
@@ -395,7 +446,7 @@ body {
 
     border-radius: 2mm;
 
-    padding: 3mm;
+    padding: 4mm;
 
     display: flex;
 
@@ -428,7 +479,7 @@ body {
 
     font-weight: 700;
 
-    line-height: 1.05;
+    line-height: 1.08;
 
     text-align: center;
 
@@ -444,7 +495,7 @@ body {
 
     justify-content: center;
 
-    min-height: 8mm;
+    min-height: 9mm;
 
     max-height: 17mm;
 
@@ -456,35 +507,31 @@ body {
 }
 
 
-/* Automatic font */
+/* =========================================================
+   FONT OPTIONS
+   ========================================================= */
 
 .font-auto .item-title {
 
-    font-size: clamp(8px, 2.8vw, 15px);
+    font-size: 13px;
 }
 
-
-/* Small font */
 
 .font-small .item-title {
 
-    font-size: 8px;
+    font-size: 9px;
 }
 
-
-/* Medium font */
 
 .font-medium .item-title {
 
-    font-size: 11px;
+    font-size: 12px;
 }
 
 
-/* Large font */
-
 .font-large .item-title {
 
-    font-size: 14px;
+    font-size: 15px;
 }
 
 
@@ -529,7 +576,7 @@ body {
 
 
 /* =========================================================
-   PART NO / LOCATION
+   FOOTER
    ========================================================= */
 
 .metadata-footer-grid {
@@ -538,9 +585,9 @@ body {
 
     display: grid;
 
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1.35fr 0.65fr;
 
-    gap: 2mm;
+    gap: 3mm;
 
     align-items: center;
 
@@ -559,6 +606,8 @@ body {
     min-width: 0;
 
     overflow: hidden;
+
+    text-align: center;
 }
 
 
@@ -627,23 +676,20 @@ body {
 
 
 /* =========================================================
-   RESPONSIVE SCREEN
+   SCREEN RESPONSIVE
    ========================================================= */
 
 @media screen and (max-width: 600px) {
 
     body {
-
         padding: 10px;
     }
 
     .print-control-panel {
-
         padding: 10px;
     }
 
     .labels-grid-container {
-
         gap: 10px;
     }
 
@@ -651,7 +697,7 @@ body {
 
 
 /* =========================================================
-   PRINT SETTINGS
+   PRINT
    ========================================================= */
 
 @page {
@@ -695,9 +741,9 @@ body {
 
         flex-wrap: wrap;
 
-        align-content: flex-start;
-
         justify-content: flex-start;
+
+        align-content: flex-start;
 
         gap: 0;
 
@@ -709,27 +755,27 @@ body {
 
     .print-label-card {
 
-        width: <?= $label_width ?>mm;
+        width: 80mm;
 
-        height: <?= $label_height ?>mm;
+        height: 60mm;
 
-        min-width: <?= $label_width ?>mm;
+        min-width: 80mm;
 
-        min-height: <?= $label_height ?>mm;
+        min-height: 60mm;
 
-        max-width: <?= $label_width ?>mm;
+        max-width: 80mm;
 
-        max-height: <?= $label_height ?>mm;
+        max-height: 60mm;
 
         margin: 0;
+
+        padding: 4mm;
 
         border: 0.3mm solid #000;
 
         border-radius: 1mm;
 
         box-shadow: none;
-
-        padding: 3mm;
 
         page-break-inside: avoid;
 
@@ -746,9 +792,9 @@ body {
 <body>
 
 
-<!-- =====================================================
-     PRINT CONTROL PANEL
-     ===================================================== -->
+<!-- =========================================================
+     CONTROL PANEL
+     ========================================================= -->
 
 <div class="print-control-panel">
 
@@ -763,30 +809,6 @@ body {
 
     <div class="control-group">
 
-        <label for="labelSize">
-            Label Size:
-        </label>
-
-        <select id="labelSize">
-
-            <?php foreach ($allowed_sizes as $key => $size): ?>
-
-                <option
-                    value="<?= htmlspecialchars($key) ?>"
-                    <?= ($key === $label_size) ? 'selected' : '' ?>
-                >
-                    <?= htmlspecialchars($size['name']) ?>
-                </option>
-
-            <?php endforeach; ?>
-
-        </select>
-
-    </div>
-
-
-    <div class="control-group">
-
         <label for="fontSize">
             Text:
         </label>
@@ -795,28 +817,39 @@ body {
 
             <option
                 value="auto"
-                <?= ($font_option === 'auto') ? 'selected' : '' ?>
+                <?= ($font_option === 'auto')
+                    ? 'selected'
+                    : '' ?>
             >
                 Auto Fit
             </option>
 
+
             <option
                 value="small"
-                <?= ($font_option === 'small') ? 'selected' : '' ?>
+                <?= ($font_option === 'small')
+                    ? 'selected'
+                    : '' ?>
             >
                 Small
             </option>
 
+
             <option
                 value="medium"
-                <?= ($font_option === 'medium') ? 'selected' : '' ?>
+                <?= ($font_option === 'medium')
+                    ? 'selected'
+                    : '' ?>
             >
                 Medium
             </option>
 
+
             <option
                 value="large"
-                <?= ($font_option === 'large') ? 'selected' : '' ?>
+                <?= ($font_option === 'large')
+                    ? 'selected'
+                    : '' ?>
             >
                 Large
             </option>
@@ -840,21 +873,31 @@ body {
         <strong>
             <?= count($item_codes) ?>
         </strong>
+
         label(s) selected
 
         &nbsp; | &nbsp;
 
         Label:
+
         <strong>
-            <?= $label_width ?> × <?= $label_height ?> mm
+            80 × 60 mm
+        </strong>
+
+        &nbsp; | &nbsp;
+
+        <strong>
+            HORIZONTAL
         </strong>
 
         &nbsp; | &nbsp;
 
         A4:
+
         <strong>
             <?= $labels_per_a4 ?>
         </strong>
+
         labels approximately
 
     </div>
@@ -862,9 +905,9 @@ body {
 </div>
 
 
-<!-- =====================================================
-     LABELS
-     ===================================================== -->
+<!-- =========================================================
+     BARCODE LABELS
+     ========================================================= -->
 
 <div class="labels-grid-container">
 
@@ -874,9 +917,9 @@ body {
 foreach ($item_codes as $code) {
 
 
-    /* -----------------------------------------------------
-       GET ITEM INFORMATION
-       ----------------------------------------------------- */
+    /* =====================================================
+       GET ITEM
+       ===================================================== */
 
     $stmt = $conn->prepare(
         "SELECT item_name, description, location
@@ -885,65 +928,98 @@ foreach ($item_codes as $code) {
          LIMIT 1"
     );
 
-    $stmt->bind_param("s", $code);
+
+    $stmt->bind_param(
+        "s",
+        $code
+    );
+
 
     $stmt->execute();
 
-    $meta_result = $stmt->get_result();
 
-    $item_info = $meta_result->fetch_assoc();
+    $meta_result =
+        $stmt->get_result();
+
+
+    $item_info =
+        $meta_result->fetch_assoc();
+
 
     $stmt->close();
 
 
-    /* -----------------------------------------------------
+    /* =====================================================
        ITEM NAME
-       ----------------------------------------------------- */
+       ===================================================== */
 
     if ($item_info) {
 
         if (!empty($item_info['item_name'])) {
 
-            $display_name = $item_info['item_name'];
+            $display_name =
+                $item_info['item_name'];
 
         } elseif (!empty($item_info['description'])) {
 
-            $display_name = $item_info['description'];
+            $display_name =
+                $item_info['description'];
 
         } else {
 
-            $display_name = 'Warehouse Item';
+            $display_name =
+                'Warehouse Item';
         }
 
     } else {
 
-        $display_name = 'Warehouse Item';
+        $display_name =
+            'Warehouse Item';
     }
 
 
-    /* -----------------------------------------------------
+    /*
+     * CLEAN ITEM NAME
+     */
+    $display_name =
+        cleanBarcodeText($display_name);
+
+
+    /* =====================================================
+       CLEAN PART NUMBER
+       ===================================================== */
+
+    $display_code =
+        cleanBarcodeText($code);
+
+
+    /* =====================================================
        LOCATION
-       ----------------------------------------------------- */
+       ===================================================== */
 
     $bin_location = 'N/A';
+
 
     if (
         $item_info &&
         !empty($item_info['location'])
     ) {
 
-        $bin_location = $item_info['location'];
+        $bin_location =
+            cleanBarcodeText(
+                $item_info['location']
+            );
     }
 
 
-    /* -----------------------------------------------------
-       BARCODE URL
-       ----------------------------------------------------- */
+    /* =====================================================
+       BARCODE IMAGE
+       ===================================================== */
 
     $barcode_url =
         "https://bwipjs-api.metafloor.com/" .
         "?bcid=code128" .
-        "&text=" . urlencode($code) .
+        "&text=" . urlencode($display_code) .
         "&scale=2" .
         "&height=12" .
         "&includetext" .
@@ -952,9 +1028,12 @@ foreach ($item_codes as $code) {
         "&paddingheight=2" .
         "&backgroundcolor=FFFFFF";
 
-
 ?>
 
+
+    <!-- =================================================
+         SINGLE 80 × 60 MM HORIZONTAL LABEL
+         ================================================= -->
 
     <div class="print-label-card <?= htmlspecialchars($font_class) ?>">
 
@@ -963,9 +1042,15 @@ foreach ($item_codes as $code) {
 
         <div
             class="item-title"
-            title="<?= htmlspecialchars($display_name) ?>"
+            title="<?= htmlspecialchars($display_name, ENT_QUOTES, 'UTF-8') ?>"
         >
-            <?= htmlspecialchars($display_name) ?>
+
+            <?= htmlspecialchars(
+                $display_name,
+                ENT_QUOTES,
+                'UTF-8'
+            ) ?>
+
         </div>
 
 
@@ -975,8 +1060,12 @@ foreach ($item_codes as $code) {
 
             <img
                 class="barcode-img"
-                src="<?= htmlspecialchars($barcode_url) ?>"
-                alt="Barcode <?= htmlspecialchars($code) ?>"
+                src="<?= htmlspecialchars(
+                    $barcode_url,
+                    ENT_QUOTES,
+                    'UTF-8'
+                ) ?>"
+                alt="Barcode"
             >
 
         </div>
@@ -987,18 +1076,29 @@ foreach ($item_codes as $code) {
         <div class="metadata-footer-grid">
 
 
+            <!-- PART NUMBER -->
+
             <div class="metadata-box">
 
                 <span class="metadata-label">
                     PART NO
                 </span>
 
+
                 <span class="part-number">
-                    <?= htmlspecialchars($code) ?>
+
+                    <?= htmlspecialchars(
+                        $display_code,
+                        ENT_QUOTES,
+                        'UTF-8'
+                    ) ?>
+
                 </span>
 
             </div>
 
+
+            <!-- LOCATION -->
 
             <div class="metadata-box">
 
@@ -1006,8 +1106,15 @@ foreach ($item_codes as $code) {
                     LOC
                 </span>
 
+
                 <span class="location-value">
-                    <?= htmlspecialchars($bin_location) ?>
+
+                    <?= htmlspecialchars(
+                        $bin_location,
+                        ENT_QUOTES,
+                        'UTF-8'
+                    ) ?>
+
                 </span>
 
             </div>
@@ -1031,90 +1138,29 @@ foreach ($item_codes as $code) {
 <script>
 
 /* =========================================================
-   CHANGE LABEL SIZE
+   TEXT SIZE CHANGE
    ========================================================= */
 
-document.getElementById('labelSize').addEventListener(
-    'change',
-    function () {
+document.getElementById('fontSize')
+    .addEventListener(
+        'change',
+        function () {
 
-        changePrintOption(
-            'size',
-            this.value
-        );
-
-    }
-);
+            const url =
+                new URL(window.location.href);
 
 
-/* =========================================================
-   CHANGE FONT SIZE
-   ========================================================= */
-
-document.getElementById('fontSize').addEventListener(
-    'change',
-    function () {
-
-        changePrintOption(
-            'font',
-            this.value
-        );
-
-    }
-);
-
-
-/* =========================================================
-   KEEP SELECTED BARCODE CODES
-   ========================================================= */
-
-function changePrintOption(parameter, value) {
-
-    const url = new URL(
-        window.location.href
-    );
-
-
-    url.searchParams.set(
-        parameter,
-        value
-    );
-
-
-    /*
-     * Rebuild codes[] parameters so
-     * selected items are NOT lost.
-     */
-
-    const currentCodes =
-        url.searchParams.getAll('codes[]');
-
-
-    /*
-     * If current URL uses codes[],
-     * keep them automatically.
-     */
-
-    if (currentCodes.length > 0) {
-
-        url.searchParams.delete('codes[]');
-
-        currentCodes.forEach(function(code) {
-
-            url.searchParams.append(
-                'codes[]',
-                code
+            url.searchParams.set(
+                'font',
+                this.value
             );
 
-        });
 
-    }
+            window.location.href =
+                url.toString();
 
-
-    window.location.href =
-        url.toString();
-
-}
+        }
+    );
 
 
 /* =========================================================
@@ -1126,43 +1172,44 @@ document.addEventListener(
     function () {
 
         const titles =
-            document.querySelectorAll('.item-title');
+            document.querySelectorAll(
+                '.item-title'
+            );
 
 
-        titles.forEach(function(title) {
+        titles.forEach(
+            function (title) {
 
-            if (
-                title.scrollHeight <=
-                title.clientHeight
-            ) {
-                return;
+                let currentSize =
+                    parseFloat(
+                        window.getComputedStyle(
+                            title
+                        ).fontSize
+                    );
+
+
+                /*
+                 * Keep reducing the font
+                 * until the complete name
+                 * fits inside the label.
+                 */
+
+                while (
+                    (
+                        title.scrollHeight >
+                        title.clientHeight
+                    ) &&
+                    currentSize > 7
+                ) {
+
+                    currentSize -= 0.5;
+
+                    title.style.fontSize =
+                        currentSize + 'px';
+                }
+
             }
-
-
-            let currentSize =
-                parseFloat(
-                    window.getComputedStyle(title).fontSize
-                );
-
-
-            /*
-             * Reduce text size until
-             * the complete item name fits.
-             */
-
-            while (
-                title.scrollHeight >
-                title.clientHeight &&
-                currentSize > 7
-            ) {
-
-                currentSize -= 0.5;
-
-                title.style.fontSize =
-                    currentSize + 'px';
-            }
-
-        });
+        );
 
     }
 );
