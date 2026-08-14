@@ -2,36 +2,53 @@
 session_start();
 include('../config/db.php');
 
-// =====================================================
-// GET SELECTED ITEM CODES
-// =====================================================
+/* =========================================================
+   GET SELECTED ITEM CODES
+   ========================================================= */
 
 $item_codes = [];
 
-if (isset($_GET['codes']) && is_array($_GET['codes'])) {
+/* Multiple selected items */
+if (isset($_GET['codes'])) {
 
-    $item_codes = array_map('trim', $_GET['codes']);
+    if (is_array($_GET['codes'])) {
 
-} elseif (isset($_GET['code']) && !empty($_GET['code'])) {
+        foreach ($_GET['codes'] as $code) {
 
-    $item_codes[] = trim($_GET['code']);
+            $code = trim($code);
 
+            if ($code !== '') {
+                $item_codes[] = $code;
+            }
+        }
+
+    } else {
+
+        $code = trim($_GET['codes']);
+
+        if ($code !== '') {
+            $item_codes[] = $code;
+        }
+    }
 }
 
+/* Single item */
+if (
+    empty($item_codes) &&
+    isset($_GET['code']) &&
+    trim($_GET['code']) !== ''
+) {
 
-// Remove empty values and duplicates
-$item_codes = array_values(
-    array_unique(
-        array_filter($item_codes, function ($value) {
-            return $value !== '';
-        })
-    )
-);
+    $item_codes[] = trim($_GET['code']);
+}
+
+/* Remove duplicate item codes */
+$item_codes = array_values(array_unique($item_codes));
 
 
-// =====================================================
-// ERROR IF NOTHING SELECTED
-// =====================================================
+/* =========================================================
+   NO ITEM SELECTED
+   ========================================================= */
 
 if (empty($item_codes)) {
 
@@ -39,7 +56,7 @@ if (empty($item_codes)) {
         <div style='
             text-align:center;
             margin-top:50px;
-            font-family:sans-serif;
+            font-family:Arial,sans-serif;
         '>
 
             <h4 style='color:red;'>
@@ -63,1083 +80,1094 @@ if (empty($item_codes)) {
     ");
 
 }
-?>
 
+
+/* =========================================================
+   LABEL SIZE
+   DEFAULT = 80 x 60 MM
+   ========================================================= */
+
+$label_size = isset($_GET['size']) ? $_GET['size'] : '80x60';
+
+$allowed_sizes = [
+
+    '60x40' => [
+        'width'  => 60,
+        'height' => 40,
+        'name'   => 'Small - 60 × 40 mm'
+    ],
+
+    '70x50' => [
+        'width'  => 70,
+        'height' => 50,
+        'name'   => 'Medium - 70 × 50 mm'
+    ],
+
+    '80x60' => [
+        'width'  => 80,
+        'height' => 60,
+        'name'   => 'Standard - 80 × 60 mm'
+    ],
+
+    '100x70' => [
+        'width'  => 100,
+        'height' => 70,
+        'name'   => 'Large - 100 × 70 mm'
+    ]
+
+];
+
+if (!isset($allowed_sizes[$label_size])) {
+    $label_size = '80x60';
+}
+
+$label_width  = $allowed_sizes[$label_size]['width'];
+$label_height = $allowed_sizes[$label_size]['height'];
+
+
+/* =========================================================
+   FONT SIZE OPTION
+   ========================================================= */
+
+$font_option = isset($_GET['font']) ? $_GET['font'] : 'auto';
+
+$allowed_fonts = [
+    'auto',
+    'small',
+    'medium',
+    'large'
+];
+
+if (!in_array($font_option, $allowed_fonts)) {
+    $font_option = 'auto';
+}
+
+
+/* =========================================================
+   A4 CALCULATION
+   A4 = 210 × 297 MM
+   ========================================================= */
+
+$a4_width = 210;
+$a4_height = 297;
+
+$horizontal_fit = max(1, floor($a4_width / $label_width));
+$vertical_fit   = max(1, floor($a4_height / $label_height));
+
+$labels_per_a4 = $horizontal_fit * $vertical_fit;
+
+
+/* =========================================================
+   FONT CLASS
+   ========================================================= */
+
+$font_class = 'font-auto';
+
+if ($font_option === 'small') {
+    $font_class = 'font-small';
+}
+
+if ($font_option === 'medium') {
+    $font_class = 'font-medium';
+}
+
+if ($font_option === 'large') {
+    $font_class = 'font-large';
+}
+
+?>
 <!DOCTYPE html>
+
 <html lang="en">
 
 <head>
 
-    <meta charset="UTF-8">
+<meta charset="UTF-8">
 
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Print Multiple Labels Asset Tracker</title>
+<title>Print Barcode Labels</title>
 
 
-    <style>
+<style>
 
-        /* =====================================================
-           GENERAL
-        ===================================================== */
+/* =========================================================
+   PAGE
+   ========================================================= */
 
-        * {
-            box-sizing: border-box;
-        }
+* {
+    box-sizing: border-box;
+}
 
-        body {
+body {
 
-            background: #525659;
+    margin: 0;
 
-            font-family: 'Segoe UI', Arial, sans-serif;
+    padding: 20px;
 
-            margin: 0;
+    background: #525659;
 
-            padding: 20px;
+    font-family:
+        Arial,
+        "Segoe UI",
+        sans-serif;
+}
 
-        }
 
+/* =========================================================
+   CONTROL PANEL
+   ========================================================= */
 
-        /* =====================================================
-           CONTROL PANEL
-        ===================================================== */
+.print-control-panel {
 
-        .print-control-panel {
+    max-width: 1200px;
 
-            background: white;
+    margin: 0 auto 20px auto;
 
-            max-width: 950px;
+    background: white;
 
-            margin: 0 auto 25px auto;
+    padding: 15px;
 
-            padding: 18px 20px;
+    border-radius: 10px;
 
-            border-radius: 10px;
+    box-shadow:
+        0 3px 15px rgba(0,0,0,0.25);
 
-            box-shadow: 0 3px 12px rgba(0,0,0,0.25);
+    display: flex;
 
-            text-align: center;
+    justify-content: center;
 
-        }
+    align-items: center;
 
+    gap: 10px;
 
-        .control-title {
+    flex-wrap: wrap;
+}
 
-            font-size: 20px;
 
-            font-weight: bold;
+.control-group {
 
-            color: #111827;
+    display: flex;
 
-            margin-bottom: 15px;
+    align-items: center;
 
-        }
+    gap: 6px;
+}
 
 
-        .size-control {
+.control-group label {
 
-            display: inline-flex;
+    font-size: 13px;
 
-            align-items: center;
+    font-weight: bold;
 
-            gap: 10px;
+    color: #333;
+}
 
-            margin: 5px 12px 5px 0;
 
-        }
+.control-group select {
 
+    height: 40px;
 
-        .size-control label {
+    padding: 0 10px;
 
-            font-weight: bold;
+    border: 1px solid #cbd5e1;
 
-            color: #374151;
+    border-radius: 6px;
 
-        }
+    background: white;
 
+    font-size: 14px;
+}
 
-        .size-select {
 
-            padding: 9px 12px;
+.btn {
 
-            min-width: 200px;
+    display: inline-flex;
 
-            border: 1px solid #9ca3af;
+    align-items: center;
 
-            border-radius: 6px;
+    justify-content: center;
 
-            background: white;
+    height: 40px;
 
-            font-size: 14px;
+    padding: 0 16px;
 
-            font-weight: 600;
+    border-radius: 6px;
 
-            cursor: pointer;
+    text-decoration: none;
 
-        }
+    border: none;
 
+    cursor: pointer;
 
-        .page-info {
+    font-size: 14px;
 
-            display: inline-block;
+    font-weight: bold;
+}
 
-            background: #f3f4f6;
 
-            color: #374151;
+.btn-back {
 
-            padding: 9px 14px;
+    background: #4b5563;
 
-            border-radius: 6px;
+    color: white;
+}
 
-            font-size: 14px;
 
-            font-weight: 600;
+.btn-back:hover {
 
-            margin: 5px;
+    background: #374151;
+}
 
-        }
 
+.btn-print {
 
-        .btn-back {
+    background: #f97316;
 
-            display: inline-block;
+    color: white;
+}
 
-            background: #4b5563;
 
-            color: white;
+.btn-print:hover {
 
-            text-decoration: none;
+    background: #ea580c;
+}
 
-            padding: 10px 18px;
 
-            font-size: 14px;
+.info-box {
 
-            font-weight: bold;
+    width: 100%;
 
-            border-radius: 6px;
+    text-align: center;
 
-            margin: 5px;
+    color: #475569;
 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    font-size: 13px;
 
-        }
+    padding-top: 3px;
+}
 
 
-        .btn-back:hover {
+/* =========================================================
+   LABELS AREA
+   ========================================================= */
 
-            background: #374151;
+.labels-grid-container {
 
-        }
+    width: 100%;
 
+    display: flex;
 
-        .btn-print {
+    flex-wrap: wrap;
 
-            display: inline-block;
+    justify-content: center;
 
-            background: #f97316;
+    align-items: flex-start;
 
-            color: white;
+    gap: 15px;
 
-            border: none;
+    margin: 0 auto;
+}
 
-            padding: 10px 18px;
 
-            font-size: 14px;
+/* =========================================================
+   PRINT LABEL
+   ========================================================= */
 
-            font-weight: bold;
+.print-label-card {
 
-            border-radius: 6px;
+    width: <?= $label_width ?>mm;
 
-            cursor: pointer;
+    height: <?= $label_height ?>mm;
 
-            margin: 5px;
+    min-width: <?= $label_width ?>mm;
 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    min-height: <?= $label_height ?>mm;
 
-        }
+    max-width: <?= $label_width ?>mm;
 
+    max-height: <?= $label_height ?>mm;
 
-        .btn-print:hover {
+    background: white;
 
-            background: #ea580c;
+    border: 1px solid #000;
 
-        }
+    border-radius: 2mm;
 
+    padding: 3mm;
 
-        /* =====================================================
-           LABEL CONTAINER
-        ===================================================== */
+    display: flex;
 
-        .labels-grid-container {
+    flex-direction: column;
 
-            display: flex;
+    justify-content: space-between;
 
-            flex-wrap: wrap;
+    text-align: center;
 
-            gap: 5mm;
+    overflow: hidden;
 
-            justify-content: center;
+    page-break-inside: avoid;
 
-            width: 100%;
+    break-inside: avoid;
 
-            margin: 0 auto;
+    box-shadow:
+        0 3px 10px rgba(0,0,0,0.25);
+}
 
-        }
 
+/* =========================================================
+   ITEM NAME
+   ========================================================= */
 
-        /* =====================================================
-           DEFAULT LABEL
-           STANDARD = 70 x 30 MM
-        ===================================================== */
+.item-title {
 
-        .print-label-card {
+    width: 100%;
 
-            background: white;
+    color: #111827;
 
-            width: 70mm;
+    font-weight: 700;
 
-            height: 30mm;
+    line-height: 1.05;
 
-            padding: 3mm;
+    text-align: center;
 
-            border: 0.4mm solid #000;
+    overflow-wrap: anywhere;
 
-            border-radius: 1.5mm;
+    word-break: break-word;
 
-            text-align: center;
+    white-space: normal;
 
-            page-break-inside: avoid;
+    display: flex;
 
-            break-inside: avoid;
+    align-items: center;
 
-            overflow: hidden;
+    justify-content: center;
 
-            display: flex;
+    min-height: 8mm;
 
-            flex-direction: column;
+    max-height: 17mm;
 
-            justify-content: space-between;
+    overflow: hidden;
 
-        }
+    flex-shrink: 0;
 
+    margin-bottom: 1mm;
+}
 
-        /* =====================================================
-           ITEM NAME
-        ===================================================== */
 
-        .item-title {
+/* Automatic font */
 
-            font-size: 12pt;
+.font-auto .item-title {
 
-            font-weight: 700;
+    font-size: clamp(8px, 2.8vw, 15px);
+}
 
-            color: #111;
 
-            line-height: 1.15;
+/* Small font */
 
-            min-height: 7mm;
+.font-small .item-title {
 
-            max-height: 11mm;
+    font-size: 8px;
+}
 
-            overflow: hidden;
 
-            text-overflow: ellipsis;
+/* Medium font */
 
-            text-align: center;
+.font-medium .item-title {
 
-            display: flex;
+    font-size: 11px;
+}
 
-            align-items: center;
 
-            justify-content: center;
+/* Large font */
 
-        }
+.font-large .item-title {
 
+    font-size: 14px;
+}
 
-        /* =====================================================
-           BARCODE
-        ===================================================== */
 
-        .barcode-display-wrapper {
+/* =========================================================
+   BARCODE
+   ========================================================= */
 
-            width: 100%;
+.barcode-display-wrapper {
 
-            flex: 1;
+    width: 100%;
 
-            display: flex;
+    flex: 1;
 
-            justify-content: center;
+    min-height: 0;
 
-            align-items: center;
+    display: flex;
 
-            overflow: hidden;
+    justify-content: center;
 
-            padding: 1mm 0;
+    align-items: center;
 
-        }
+    overflow: hidden;
 
+    padding: 1mm 0;
+}
 
-        .barcode-img {
 
-            width: 92%;
+.barcode-img {
 
-            max-width: 100%;
+    width: 100%;
 
-            height: auto;
+    max-width: 100%;
 
-            max-height: 15mm;
+    max-height: 100%;
 
-            display: block;
+    height: auto;
 
-            margin: 0 auto;
+    object-fit: contain;
 
-        }
+    display: block;
+}
 
 
-        /* =====================================================
-           FOOTER
-        ===================================================== */
+/* =========================================================
+   PART NO / LOCATION
+   ========================================================= */
 
-        .metadata-footer-grid {
+.metadata-footer-grid {
 
-            display: flex;
+    width: 100%;
 
-            justify-content: space-between;
+    display: grid;
 
-            align-items: center;
+    grid-template-columns: 1fr 1fr;
 
-            width: 100%;
+    gap: 2mm;
 
-            border-top: 0.25mm solid #999;
+    align-items: center;
 
-            padding-top: 1.5mm;
+    margin-top: 1mm;
 
-            font-size: 8pt;
+    padding-top: 2mm;
 
-            font-weight: 600;
+    border-top: 1px solid #d1d5db;
 
-            white-space: nowrap;
+    flex-shrink: 0;
+}
 
-        }
 
+.metadata-box {
 
-        .bin-badge {
+    min-width: 0;
 
-            background: #000;
+    overflow: hidden;
+}
 
-            color: white;
 
-            padding: 0.8mm 1.5mm;
+.metadata-label {
 
-            font-size: 8pt;
+    display: block;
 
-            font-weight: bold;
+    font-size: 7px;
 
-            border-radius: 0.8mm;
+    font-weight: 700;
 
-        }
+    color: #4b5563;
 
+    margin-bottom: 1px;
 
-        /* =====================================================
-           SMALL
-           50 x 30 MM
-        ===================================================== */
+    text-transform: uppercase;
+}
 
-        body.size-small .print-label-card {
 
-            width: 50mm;
+.part-number {
 
-            height: 30mm;
+    display: block;
 
-            padding: 2.5mm;
+    font-size: 10px;
 
-        }
+    font-weight: 800;
 
+    color: #111827;
 
-        body.size-small .item-title {
+    white-space: normal;
 
-            font-size: 9pt;
+    overflow-wrap: anywhere;
 
-            min-height: 6mm;
+    word-break: break-word;
 
-            max-height: 9mm;
+    line-height: 1.05;
 
-        }
+    max-height: 8mm;
 
+    overflow: hidden;
+}
 
-        body.size-small .barcode-img {
 
-            max-height: 14mm;
+.location-value {
 
-            width: 90%;
+    display: block;
 
-        }
+    font-size: 9px;
 
+    font-weight: 800;
 
-        body.size-small .metadata-footer-grid {
+    color: #111827;
 
-            font-size: 6.5pt;
+    white-space: normal;
 
-        }
+    overflow-wrap: anywhere;
 
+    word-break: break-word;
 
-        body.size-small .bin-badge {
+    line-height: 1.05;
 
-            font-size: 6.5pt;
+    max-height: 8mm;
 
-        }
+    overflow: hidden;
+}
 
 
-        /* =====================================================
-           MEDIUM
-           60 x 40 MM
-        ===================================================== */
+/* =========================================================
+   RESPONSIVE SCREEN
+   ========================================================= */
 
-        body.size-medium .print-label-card {
+@media screen and (max-width: 600px) {
 
-            width: 60mm;
+    body {
 
-            height: 40mm;
+        padding: 10px;
+    }
 
-            padding: 3mm;
+    .print-control-panel {
 
-        }
+        padding: 10px;
+    }
 
+    .labels-grid-container {
 
-        body.size-medium .item-title {
+        gap: 10px;
+    }
 
-            font-size: 11pt;
+}
 
-            min-height: 7mm;
 
-            max-height: 11mm;
+/* =========================================================
+   PRINT SETTINGS
+   ========================================================= */
 
-        }
+@page {
 
+    size: A4 portrait;
 
-        body.size-medium .barcode-img {
+    margin: 0;
+}
 
-            max-height: 20mm;
 
-            width: 92%;
+@media print {
 
-        }
+    html,
+    body {
 
+        width: 210mm;
 
-        body.size-medium .metadata-footer-grid {
+        min-height: 297mm;
 
-            font-size: 7.5pt;
+        background: white;
 
-        }
+        margin: 0;
 
+        padding: 0;
+    }
 
-        body.size-medium .bin-badge {
 
-            font-size: 7.5pt;
+    .print-control-panel {
 
-        }
+        display: none !important;
+    }
 
 
-        /* =====================================================
-           STANDARD
-           70 x 30 MM
-        ===================================================== */
+    .labels-grid-container {
 
-        body.size-standard .print-label-card {
+        width: 210mm;
 
-            width: 70mm;
+        min-height: 297mm;
 
-            height: 30mm;
+        display: flex;
 
-            padding: 3mm;
+        flex-wrap: wrap;
 
-        }
+        align-content: flex-start;
 
+        justify-content: flex-start;
 
-        /* =====================================================
-           LARGE
-           80 x 50 MM
-        ===================================================== */
+        gap: 0;
 
-        body.size-large .print-label-card {
+        padding: 0;
 
-            width: 80mm;
+        margin: 0;
+    }
 
-            height: 50mm;
 
-            padding: 4mm;
+    .print-label-card {
 
-        }
+        width: <?= $label_width ?>mm;
 
+        height: <?= $label_height ?>mm;
 
-        body.size-large .item-title {
+        min-width: <?= $label_width ?>mm;
 
-            font-size: 13pt;
+        min-height: <?= $label_height ?>mm;
 
-            min-height: 8mm;
+        max-width: <?= $label_width ?>mm;
 
-            max-height: 12mm;
+        max-height: <?= $label_height ?>mm;
 
-        }
+        margin: 0;
 
+        border: 0.3mm solid #000;
 
-        body.size-large .barcode-img {
+        border-radius: 1mm;
 
-            max-height: 27mm;
+        box-shadow: none;
 
-            width: 94%;
+        padding: 3mm;
 
-        }
+        page-break-inside: avoid;
 
+        break-inside: avoid;
+    }
 
-        body.size-large .metadata-footer-grid {
+}
 
-            font-size: 9pt;
-
-            padding-top: 2mm;
-
-        }
-
-
-        body.size-large .bin-badge {
-
-            font-size: 9pt;
-
-        }
-
-
-        /* =====================================================
-           80 x 60 MM
-           LANDSCAPE
-        ===================================================== */
-
-        body.size-8060 .print-label-card {
-
-            width: 80mm;
-
-            height: 60mm;
-
-            padding: 4mm;
-
-        }
-
-
-        body.size-8060 .item-title {
-
-            font-size: 14pt;
-
-            font-weight: 700;
-
-            min-height: 9mm;
-
-            max-height: 14mm;
-
-        }
-
-
-        body.size-8060 .barcode-display-wrapper {
-
-            flex: 1;
-
-            display: flex;
-
-            align-items: center;
-
-            justify-content: center;
-
-            padding: 2mm 0;
-
-            overflow: hidden;
-
-        }
-
-
-        body.size-8060 .barcode-img {
-
-            width: 94%;
-
-            max-width: 100%;
-
-            max-height: 32mm;
-
-        }
-
-
-        body.size-8060 .metadata-footer-grid {
-
-            font-size: 9pt;
-
-            padding-top: 2mm;
-
-        }
-
-
-        body.size-8060 .bin-badge {
-
-            font-size: 9pt;
-
-        }
-
-
-        /* =====================================================
-           PRINT SETTINGS
-        ===================================================== */
-
-        @media print {
-
-            @page {
-
-                size: A4 portrait;
-
-                margin: 5mm;
-
-            }
-
-
-            html,
-            body {
-
-                background: white;
-
-                margin: 0;
-
-                padding: 0;
-
-            }
-
-
-            .print-control-panel {
-
-                display: none !important;
-
-            }
-
-
-            .labels-grid-container {
-
-                display: flex;
-
-                flex-wrap: wrap;
-
-                justify-content: flex-start;
-
-                align-content: flex-start;
-
-                gap: 5mm;
-
-                width: 200mm;
-
-                margin: 0;
-
-            }
-
-
-            .print-label-card {
-
-                box-shadow: none;
-
-                page-break-inside: avoid;
-
-                break-inside: avoid;
-
-                flex-shrink: 0;
-
-            }
-
-        }
-
-
-        /* =====================================================
-           MOBILE
-        ===================================================== */
-
-        @media screen and (max-width: 700px) {
-
-            .print-control-panel {
-
-                text-align: left;
-
-            }
-
-
-            .size-control {
-
-                display: flex;
-
-                flex-direction: column;
-
-                align-items: flex-start;
-
-            }
-
-        }
-
-    </style>
+</style>
 
 </head>
 
 
-<body class="size-standard">
+<body>
 
 
-    <!-- =====================================================
-         PRINT CONTROL PANEL
-    ===================================================== -->
+<!-- =====================================================
+     PRINT CONTROL PANEL
+     ===================================================== -->
 
-    <div class="print-control-panel">
-
-
-        <div class="control-title">
-
-            🖨️ Barcode Label Printing
-
-        </div>
+<div class="print-control-panel">
 
 
-        <div class="size-control">
+    <a
+        href="../items/item_list.php"
+        class="btn btn-back"
+    >
+        ⬅️ Back to Item List
+    </a>
 
-            <label for="labelSize">
 
-                Label Size:
+    <div class="control-group">
 
-            </label>
+        <label for="labelSize">
+            Label Size:
+        </label>
 
+        <select id="labelSize">
 
-            <select id="labelSize" class="size-select">
+            <?php foreach ($allowed_sizes as $key => $size): ?>
 
-                <option value="small">
-
-                    Small - 50 × 30 mm
-
+                <option
+                    value="<?= htmlspecialchars($key) ?>"
+                    <?= ($key === $label_size) ? 'selected' : '' ?>
+                >
+                    <?= htmlspecialchars($size['name']) ?>
                 </option>
 
+            <?php endforeach; ?>
 
-                <option value="medium">
-
-                    Medium - 60 × 40 mm
-
-                </option>
-
-
-                <option value="standard" selected>
-
-                    Standard - 70 × 30 mm
-
-                </option>
-
-
-                <option value="large">
-
-                    Large - 80 × 50 mm
-
-                </option>
-
-
-                <option value="8060">
-
-                    80 × 60 mm
-
-                </option>
-
-            </select>
-
-        </div>
-
-
-        <div class="page-info">
-
-            A4:
-            <span id="pageCount">18</span>
-            labels/page
-
-        </div>
-
-
-        <div class="page-info">
-
-            Selected:
-            <?= count($item_codes) ?>
-            labels
-
-        </div>
-
-
-        <br>
-
-
-        <a href="../items/item_list.php"
-           class="btn-back">
-
-            ⬅️ Back to Item List
-
-        </a>
-
-
-        <button
-            class="btn-print"
-            onclick="window.print()">
-
-            🖨️ Print All Selected Barcodes
-
-        </button>
-
+        </select>
 
     </div>
 
 
+    <div class="control-group">
 
-    <!-- =====================================================
-         LABELS
-    ===================================================== -->
+        <label for="fontSize">
+            Text:
+        </label>
 
-    <div class="labels-grid-container">
+        <select id="fontSize">
 
+            <option
+                value="auto"
+                <?= ($font_option === 'auto') ? 'selected' : '' ?>
+            >
+                Auto Fit
+            </option>
 
-        <?php
+            <option
+                value="small"
+                <?= ($font_option === 'small') ? 'selected' : '' ?>
+            >
+                Small
+            </option>
 
-        foreach ($item_codes as $code) {
+            <option
+                value="medium"
+                <?= ($font_option === 'medium') ? 'selected' : '' ?>
+            >
+                Medium
+            </option>
 
+            <option
+                value="large"
+                <?= ($font_option === 'large') ? 'selected' : '' ?>
+            >
+                Large
+            </option>
 
-            $stmt = $conn->prepare("
-                SELECT item_name, description, location
-                FROM items
-                WHERE item_code = ?
-                LIMIT 1
-            ");
+        </select>
 
-
-            $stmt->bind_param("s", $code);
-
-
-            $stmt->execute();
-
-
-            $meta_result = $stmt->get_result();
-
-
-            $item_info = $meta_result->fetch_assoc();
-
-
-            $display_name = $item_info
-                ? ($item_info['item_name'] ?? $item_info['description'] ?? 'Warehouse Asset')
-                : 'Warehouse Asset';
-
-
-            $bin_location = $item_info
-                ? ($item_info['location'] ?? 'N/A')
-                : 'N/A';
+    </div>
 
 
-            // =================================================
-            // BARCODE URL
-            // =================================================
-
-            $barcode_url =
-                "https://bwipjs-api.metafloor.com/?" .
-                "bcid=code128" .
-                "&text=" . urlencode($code) .
-                "&scale=3" .
-                "&rotate=N" .
-                "&includetext";
-
-        ?>
+    <button
+        type="button"
+        class="btn btn-print"
+        onclick="window.print()"
+    >
+        🖨️ Print All Selected
+    </button>
 
 
-            <div class="print-label-card">
+    <div class="info-box">
+
+        <strong>
+            <?= count($item_codes) ?>
+        </strong>
+        label(s) selected
+
+        &nbsp; | &nbsp;
+
+        Label:
+        <strong>
+            <?= $label_width ?> × <?= $label_height ?> mm
+        </strong>
+
+        &nbsp; | &nbsp;
+
+        A4:
+        <strong>
+            <?= $labels_per_a4 ?>
+        </strong>
+        labels approximately
+
+    </div>
+
+</div>
 
 
-                <!-- ITEM NAME ONLY -->
-                <div class="item-title">
+<!-- =====================================================
+     LABELS
+     ===================================================== -->
 
-                    <?= htmlspecialchars($display_name) ?>
-
-                </div>
-
-
-                <!-- BARCODE -->
-                <div class="barcode-display-wrapper">
-
-                    <img
-                        class="barcode-img"
-                        src="<?= htmlspecialchars($barcode_url) ?>"
-                        alt="Barcode"
-                    >
-
-                </div>
+<div class="labels-grid-container">
 
 
-                <!-- PART NO + LOCATION -->
-                <div class="metadata-footer-grid">
+<?php
+
+foreach ($item_codes as $code) {
 
 
-                    <div>
+    /* -----------------------------------------------------
+       GET ITEM INFORMATION
+       ----------------------------------------------------- */
 
-                        PART NO:
-                        <strong>
-                            <?= htmlspecialchars($code) ?>
-                        </strong>
+    $stmt = $conn->prepare(
+        "SELECT item_name, description, location
+         FROM items
+         WHERE item_code = ?
+         LIMIT 1"
+    );
 
-                    </div>
+    $stmt->bind_param("s", $code);
 
+    $stmt->execute();
 
-                    <div>
+    $meta_result = $stmt->get_result();
 
-                        LOC:
-                        <span class="bin-badge">
+    $item_info = $meta_result->fetch_assoc();
 
-                            <?= htmlspecialchars($bin_location) ?>
-
-                        </span>
-
-                    </div>
+    $stmt->close();
 
 
-                </div>
+    /* -----------------------------------------------------
+       ITEM NAME
+       ----------------------------------------------------- */
 
+    if ($item_info) {
+
+        if (!empty($item_info['item_name'])) {
+
+            $display_name = $item_info['item_name'];
+
+        } elseif (!empty($item_info['description'])) {
+
+            $display_name = $item_info['description'];
+
+        } else {
+
+            $display_name = 'Warehouse Item';
+        }
+
+    } else {
+
+        $display_name = 'Warehouse Item';
+    }
+
+
+    /* -----------------------------------------------------
+       LOCATION
+       ----------------------------------------------------- */
+
+    $bin_location = 'N/A';
+
+    if (
+        $item_info &&
+        !empty($item_info['location'])
+    ) {
+
+        $bin_location = $item_info['location'];
+    }
+
+
+    /* -----------------------------------------------------
+       BARCODE URL
+       ----------------------------------------------------- */
+
+    $barcode_url =
+        "https://bwipjs-api.metafloor.com/" .
+        "?bcid=code128" .
+        "&text=" . urlencode($code) .
+        "&scale=2" .
+        "&height=12" .
+        "&includetext" .
+        "&textsize=9" .
+        "&paddingwidth=4" .
+        "&paddingheight=2" .
+        "&backgroundcolor=FFFFFF";
+
+
+?>
+
+
+    <div class="print-label-card <?= htmlspecialchars($font_class) ?>">
+
+
+        <!-- ITEM NAME -->
+
+        <div
+            class="item-title"
+            title="<?= htmlspecialchars($display_name) ?>"
+        >
+            <?= htmlspecialchars($display_name) ?>
+        </div>
+
+
+        <!-- BARCODE -->
+
+        <div class="barcode-display-wrapper">
+
+            <img
+                class="barcode-img"
+                src="<?= htmlspecialchars($barcode_url) ?>"
+                alt="Barcode <?= htmlspecialchars($code) ?>"
+            >
+
+        </div>
+
+
+        <!-- PART NO + LOCATION -->
+
+        <div class="metadata-footer-grid">
+
+
+            <div class="metadata-box">
+
+                <span class="metadata-label">
+                    PART NO
+                </span>
+
+                <span class="part-number">
+                    <?= htmlspecialchars($code) ?>
+                </span>
 
             </div>
 
 
-        <?php
+            <div class="metadata-box">
 
-        }
+                <span class="metadata-label">
+                    LOC
+                </span>
 
-        ?>
+                <span class="location-value">
+                    <?= htmlspecialchars($bin_location) ?>
+                </span>
+
+            </div>
+
+
+        </div>
 
 
     </div>
 
 
+<?php
 
-    <!-- =====================================================
-         SIZE SELECTION JAVASCRIPT
-    ===================================================== -->
+}
 
-    <script>
+?>
 
-
-        const labelSize =
-            document.getElementById('labelSize');
+</div>
 
 
-        const pageCount =
-            document.getElementById('pageCount');
+<script>
 
+/* =========================================================
+   CHANGE LABEL SIZE
+   ========================================================= */
 
-        /*
-         * A4 page:
-         *
-         * 210 x 297 mm
-         *
-         * Approximately 200 x 287 mm
-         * printable area with 5mm margins.
-         */
+document.getElementById('labelSize').addEventListener(
+    'change',
+    function () {
 
-        const sizes = {
-
-
-            small: {
-
-                width: 50,
-
-                height: 30,
-
-                perPage: 36
-
-            },
-
-
-            medium: {
-
-                width: 60,
-
-                height: 40,
-
-                perPage: 21
-
-            },
-
-
-            standard: {
-
-                width: 70,
-
-                height: 30,
-
-                perPage: 18
-
-            },
-
-
-            large: {
-
-                width: 80,
-
-                height: 50,
-
-                perPage: 12
-
-            },
-
-
-            8060: {
-
-                width: 80,
-
-                height: 60,
-
-                perPage: 8
-
-            }
-
-        };
-
-
-        function changeLabelSize() {
-
-
-            const selected =
-                labelSize.value;
-
-
-            document.body.classList.remove(
-
-                'size-small',
-
-                'size-medium',
-
-                'size-standard',
-
-                'size-large',
-
-                'size-8060'
-
-            );
-
-
-            document.body.classList.add(
-
-                'size-' + selected
-
-            );
-
-
-            pageCount.textContent =
-                sizes[selected].perPage;
-
-        }
-
-
-        labelSize.addEventListener(
-            'change',
-            changeLabelSize
+        changePrintOption(
+            'size',
+            this.value
         );
 
+    }
+);
 
-        changeLabelSize();
+
+/* =========================================================
+   CHANGE FONT SIZE
+   ========================================================= */
+
+document.getElementById('fontSize').addEventListener(
+    'change',
+    function () {
+
+        changePrintOption(
+            'font',
+            this.value
+        );
+
+    }
+);
 
 
-    </script>
+/* =========================================================
+   KEEP SELECTED BARCODE CODES
+   ========================================================= */
+
+function changePrintOption(parameter, value) {
+
+    const url = new URL(
+        window.location.href
+    );
+
+
+    url.searchParams.set(
+        parameter,
+        value
+    );
+
+
+    /*
+     * Rebuild codes[] parameters so
+     * selected items are NOT lost.
+     */
+
+    const currentCodes =
+        url.searchParams.getAll('codes[]');
+
+
+    /*
+     * If current URL uses codes[],
+     * keep them automatically.
+     */
+
+    if (currentCodes.length > 0) {
+
+        url.searchParams.delete('codes[]');
+
+        currentCodes.forEach(function(code) {
+
+            url.searchParams.append(
+                'codes[]',
+                code
+            );
+
+        });
+
+    }
+
+
+    window.location.href =
+        url.toString();
+
+}
+
+
+/* =========================================================
+   AUTOMATIC TEXT FIT
+   ========================================================= */
+
+document.addEventListener(
+    'DOMContentLoaded',
+    function () {
+
+        const titles =
+            document.querySelectorAll('.item-title');
+
+
+        titles.forEach(function(title) {
+
+            if (
+                title.scrollHeight <=
+                title.clientHeight
+            ) {
+                return;
+            }
+
+
+            let currentSize =
+                parseFloat(
+                    window.getComputedStyle(title).fontSize
+                );
+
+
+            /*
+             * Reduce text size until
+             * the complete item name fits.
+             */
+
+            while (
+                title.scrollHeight >
+                title.clientHeight &&
+                currentSize > 7
+            ) {
+
+                currentSize -= 0.5;
+
+                title.style.fontSize =
+                    currentSize + 'px';
+            }
+
+        });
+
+    }
+);
+
+</script>
 
 
 </body>
