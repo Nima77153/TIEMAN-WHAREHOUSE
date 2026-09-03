@@ -1,8 +1,10 @@
 FROM php:8.2-apache
 
-# Disable conflicting MPM modules and enable prefork
-RUN a2dismod mpm_event mpm_worker || true \
-    && a2enmod mpm_prefork
+# Force only mpm_prefork to be enabled (remove any other MPM configs directly)
+RUN rm -f /etc/apache2/mods-enabled/mpm_event.load /etc/apache2/mods-enabled/mpm_event.conf \
+    && rm -f /etc/apache2/mods-enabled/mpm_worker.load /etc/apache2/mods-enabled/mpm_worker.conf \
+    && ln -sf /etc/apache2/mods-available/mpm_prefork.load /etc/apache2/mods-enabled/mpm_prefork.load \
+    && ln -sf /etc/apache2/mods-available/mpm_prefork.conf /etc/apache2/mods-enabled/mpm_prefork.conf
 
 # Install PHP extensions
 RUN docker-php-ext-install mysqli pdo pdo_mysql
@@ -14,10 +16,4 @@ COPY . /var/www/html/
 RUN chown -R www-data:www-data /var/www/html/uploads \
     && chmod -R 775 /var/www/html/uploads
 
-# --- Fix for Railway dynamic port ---
-RUN sed -i 's/80/${PORT}/g' /etc/apache2/sites-available/000-default.conf \
-    && sed -i 's/80/${PORT}/g' /etc/apache2/ports.conf
-
 EXPOSE 8080
-
-CMD ["sh", "-c", "apache2-foreground"]
