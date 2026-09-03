@@ -14,4 +14,10 @@ COPY . /var/www/html/
 RUN chown -R www-data:www-data /var/www/html/uploads \
     && chmod -R 775 /var/www/html/uploads
 
-EXPOSE 80
+# --- Fix for Railway dynamic port ---
+RUN sed -i 's/80/${PORT}/g' /etc/apache2/sites-available/000-default.conf \
+    && sed -i 's/80/${PORT}/g' /etc/apache2/ports.conf
+
+EXPOSE 8080
+
+CMD ["sh", "-c", "apache2-foreground"]

@@ -46,6 +46,13 @@ function getDynamicImagePath($image_file, $item_code = '') {
     return '/assets/images/no-image.png';
 }
 
+// Helper function to strip stray backslash characters from stored text
+// (keeps quotation marks and every other symbol intact, only removes "\")
+function cleanDisplayText($text) {
+    if (empty($text)) return $text;
+    return preg_replace('/\\\\+/', '', $text);
+}
+
 // ==========================================
 // CLOUDINARY FILE UPLOAD HANDLER
 // ==========================================
@@ -186,7 +193,7 @@ if (isset($_POST['export_excel_action'])) {
         }
         
         echo '<td style="font-weight: bold; vnd.ms-excel.numberformat:@;">' . htmlspecialchars($row['item_code']) . '</td>';
-        echo '<td>' . htmlspecialchars($row['description'] ?? $row['item_name'] ?? '-') . '</td>';
+        echo '<td>' . htmlspecialchars(cleanDisplayText($row['description'] ?? $row['item_name'] ?? '-')) . '</td>';
         echo '<td align="center">' . htmlspecialchars($row['category'] ?? 'General') . '</td>';
         echo '<td align="center">' . htmlspecialchars($row['stock_date'] ?? '-') . '</td>';
         echo '<td align="center" style="font-weight: bold;">' . $row['stock_qty'] . '</td>';
@@ -524,7 +531,7 @@ $result = $stmt->get_result();
                                         </a>
                                     </td>
                                     <td style="font-size: 13px; max-width: 300px; font-weight: 500;">
-                                        <?= htmlspecialchars($row['description'] ?? $row['item_name'] ?? '-') ?>
+                                        <?= htmlspecialchars(cleanDisplayText($row['description'] ?? $row['item_name'] ?? '-')) ?>
                                     </td>
                                     <td class="text-center font-weight-bold text-dark">
                                         <span class="badge bg-secondary px-2.5 py-1.5 text-uppercase"><?= htmlspecialchars($row['category'] ?? 'General') ?></span>
@@ -538,9 +545,9 @@ $result = $stmt->get_result();
                                     <td><span class="badge bg-light text-dark border"><?= htmlspecialchars($row['location'] ?? '-') ?></span></td>
                                     <td>
                                         <div class="btn-group btn-group-sm" role="group">
-                                            <a href="view_item.php?id=<?= $row['id'] ?>" class="btn btn-primary">View</a>
-                                            <a href="edit_item.php?id=<?= $row['id'] ?>" class="btn btn-success">Edit</a>
-                                            <a href="delete_item.php?id=<?= $row['id'] ?>" class="btn btn-danger" onclick="return confirm('Delete item?')">Delete</a>
+                                            <a href="view_item.php?id=<?= $row['id'] ?>" class="btn btn-primary" onclick="saveScrollPosition()">View</a>
+                                            <a href="edit_item.php?id=<?= $row['id'] ?>" class="btn btn-success" onclick="saveScrollPosition()">Edit</a>
+                                            <a href="delete_item.php?id=<?= $row['id'] ?>" class="btn btn-danger" onclick="saveScrollPosition(); return confirm('Delete item?')">Delete</a>
                                             <a href="../barcode/print_barcode.php?code=<?= urlencode($row['item_code']) ?>" target="_blank" class="btn btn-dark">🏷️ Barcode</a>
                                         </div>
                                     </td>
@@ -575,6 +582,28 @@ $result = $stmt->get_result();
         const selectedCountLabel = document.getElementById('selectedCount');
         const scrollTopBtn = document.getElementById('scrollToTopBtn');
 
+        // ==========================================
+        // KEEP PAGE POSITION: save scroll spot before leaving
+        // (Edit / View / Delete / Back / Update) and restore it
+        // when the page reloads, instead of jumping to the top.
+        // ==========================================
+        const SCROLL_STORAGE_KEY = 'catalogScrollPos';
+
+        function saveScrollPosition() {
+            sessionStorage.setItem(SCROLL_STORAGE_KEY, window.scrollY);
+        }
+
+        // Catch any navigation away from this page (including browser Back)
+        window.addEventListener('beforeunload', saveScrollPosition);
+
+        window.addEventListener('load', function() {
+            const savedScroll = sessionStorage.getItem(SCROLL_STORAGE_KEY);
+            if (savedScroll !== null) {
+                window.scrollTo(0, parseInt(savedScroll, 10));
+                sessionStorage.removeItem(SCROLL_STORAGE_KEY);
+            }
+        });
+
         masterCheckbox.addEventListener('change', function() {
             standardCheckboxes.forEach(box => box.checked = this.checked);
             evaluateCheckboxState();
@@ -591,11 +620,20 @@ $result = $stmt->get_result();
         }
 
         function executeCatalogSearch() {
+            saveScrollPosition();
             const query = document.getElementById('ui_search').value;
             const category = document.getElementById('ui_category').value;
             const sort = document.getElementById('ui_sort').value;
             window.location.href = `item_list.php?search=${encodeURIComponent(query)}&category_filter=${encodeURIComponent(category)}&sort_by=${encodeURIComponent(sort)}`;
         }
+
+        // Allow pressing Enter inside the search box to trigger the same search
+        document.getElementById('ui_search').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                executeCatalogSearch();
+            }
+        });
 
         function autoSaveSingleDate(element) {
             const rowId = element.getAttribute('data-id');
