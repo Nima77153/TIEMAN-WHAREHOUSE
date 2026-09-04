@@ -13,6 +13,8 @@ use Cloudinary\Api\Upload\UploadApi;
 // ==========================================
 
 $cloudinary_url = getenv('CLOUDINARY_URL');
+echo "<pre>DEBUG LENGTH: " . strlen($cloudinary_url) . "\nDEBUG HEX: " . bin2hex($cloudinary_url) . "\nDEBUG VALUE: [" . $cloudinary_url . "]</pre>";
+exit;
 $cloudinary_configured = !empty($cloudinary_url);
 
 $message = "";
