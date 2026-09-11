@@ -12,7 +12,7 @@ use Cloudinary\Api\Upload\UploadApi;
 // CLOUDINARY CONFIGURATION
 // ==========================================
 
-$cloudinary_url = getenv('CLOUDINARY_URL');
+$cloudinary_url = trim((string) getenv('CLOUDINARY_URL'));
 $cloudinary_configured = !empty($cloudinary_url);
 
 $message = "";
