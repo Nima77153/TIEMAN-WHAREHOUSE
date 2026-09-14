@@ -6,6 +6,43 @@ require 'vendor/autoload.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Worksheet\MemoryDrawing;
 
+// Same image-resolving helper used in items/item_list.php, so images
+// display identically here as they do on the Items list page.
+function getDynamicImagePath($image_file, $item_code = '') {
+    if (!empty($image_file) && (filter_var($image_file, FILTER_VALIDATE_URL) || strpos($image_file, 'http') === 0)) {
+        return $image_file . '?v=' . time();
+    }
+
+    $search_directories = [
+        $_SERVER['DOCUMENT_ROOT'] . "/uploads/items/",
+        $_SERVER['DOCUMENT_ROOT'] . "/uploads/"
+    ];
+
+    $allowed_exts = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+
+    if (!empty($item_code)) {
+        $clean_code = preg_replace('/[^A-Za-z0-9_\-]/', '_', trim($item_code));
+        foreach ($search_directories as $dir) {
+            foreach ($allowed_exts as $ext) {
+                if (file_exists($dir . $clean_code . '.' . $ext)) {
+                    $rel_path = str_replace($_SERVER['DOCUMENT_ROOT'], '', $dir . $clean_code . '.' . $ext);
+                    return $rel_path . '?v=' . time();
+                }
+            }
+        }
+    }
+
+    if (!empty($image_file)) {
+        foreach ($search_directories as $dir) {
+            if (file_exists($dir . $image_file)) {
+                return str_replace($_SERVER['DOCUMENT_ROOT'], '', $dir . $image_file);
+            }
+        }
+    }
+
+    return '/assets/images/no-image.png';
+}
+
 // FUNCTION 1: EXCEL MATRIX AUTO-PARSER (UNTOUCHED)
 if(isset($_POST['import_matrix'])) {
     if(empty($_FILES['excel']['tmp_name'])) {
@@ -272,20 +309,14 @@ if(isset($_POST['add_items_to_job'])) {
                         $all_items = mysqli_query($conn, "SELECT id, item_code AS part_no, item_name, description, image FROM items ORDER BY id DESC");
                         if(mysqli_num_rows($all_items) > 0) {
                             while($itm = mysqli_fetch_assoc($all_items)) {
-                                $img_path = !empty($itm['image']) && file_exists('uploads/items/' . $itm['image']) 
-                                            ? 'uploads/items/' . $itm['image'] 
-                                            : '';
+                                $img_path = getDynamicImagePath($itm['image'] ?? '', $itm['part_no'] ?? '');
                                 ?>
                                 <tr class="item-row">
                                     <td style="text-align: center;">
                                         <input type="checkbox" name="selected_items[]" value="<?= $itm['id'] ?>" style="width: 18px; height: 18px; cursor: pointer;">
                                     </td>
                                     <td>
-                                        <?php if (!empty($img_path)): ?>
-                                            <img src="<?= $img_path ?>" class="item-img" alt="Item Image">
-                                        <?php else: ?>
-                                            <div class="item-img" style="display:flex; align-items:center; justify-content:center; font-size:10px; color:#94a3b8; text-align:center;">No Image</div>
-                                        <?php endif; ?>
+                                        <img src="<?= htmlspecialchars($img_path) ?>" class="item-img" alt="Item Image" onerror="this.onerror=null; this.src='/assets/images/no-image.png';">
                                     </td>
                                     <td>
                                         <strong class="search-part" style="color: #2563eb; font-family: monospace; font-size: 14px;"><?= htmlspecialchars($itm['part_no']) ?></strong>
