@@ -274,14 +274,18 @@ if(isset($_POST['add_items_to_job'])) {
                             while($itm = mysqli_fetch_assoc($all_items)) {
                                 $img_path = !empty($itm['image']) && file_exists('uploads/items/' . $itm['image']) 
                                             ? 'uploads/items/' . $itm['image'] 
-                                            : 'uploads/items/placeholder.png';
+                                            : '';
                                 ?>
                                 <tr class="item-row">
                                     <td style="text-align: center;">
                                         <input type="checkbox" name="selected_items[]" value="<?= $itm['id'] ?>" style="width: 18px; height: 18px; cursor: pointer;">
                                     </td>
                                     <td>
-                                        <img src="<?= $img_path ?>" class="item-img" alt="Item Image">
+                                        <?php if (!empty($img_path)): ?>
+                                            <img src="<?= $img_path ?>" class="item-img" alt="Item Image">
+                                        <?php else: ?>
+                                            <div class="item-img" style="display:flex; align-items:center; justify-content:center; font-size:10px; color:#94a3b8; text-align:center;">No Image</div>
+                                        <?php endif; ?>
                                     </td>
                                     <td>
                                         <strong class="search-part" style="color: #2563eb; font-family: monospace; font-size: 14px;"><?= htmlspecialchars($itm['part_no']) ?></strong>
