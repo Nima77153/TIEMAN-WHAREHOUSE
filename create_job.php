@@ -57,7 +57,7 @@ if(isset($_POST['import_matrix'])) {
                 if (preg_match('/TA\d+/', $clean_val, $matches)) {
                     $job_no = $matches[0];
                     $job_columns[$col] = $job_no;
-                    
+
                     mysqli_query($conn, "INSERT IGNORE INTO jobs (job_no, status) VALUES ('$job_no', 'Open')");
                 }
             }
@@ -124,7 +124,7 @@ if(isset($_POST['create_manual_job'])) {
     }
 }
 
-// FUNCTION 3: ATTACH MULTIPLE SELECTED ITEMS TO A JOB CARD (UNTOUCHED LOGIC)
+// FUNCTION 3: ATTACH MULTIPLE SELECTED ITEMS TO A JOB CARD (FIXED: missing part_no on insert)
 if(isset($_POST['add_items_to_job'])) {
     $job_id = (int)$_POST['job_id'];
     if($job_id > 0 && isset($_POST['selected_items']) && is_array($_POST['selected_items'])) {
@@ -132,16 +132,17 @@ if(isset($_POST['add_items_to_job'])) {
         foreach($_POST['selected_items'] as $item_id) {
             $item_id = (int)$item_id;
             $add_qty = isset($_POST['item_qty'][$item_id]) ? (int)$_POST['item_qty'][$item_id] : 1;
-            
+
             if($add_qty > 0) {
-                $item_query = mysqli_query($conn, "SELECT description, location FROM items WHERE id=$item_id");
+                $item_query = mysqli_query($conn, "SELECT item_code, description, location FROM items WHERE id=$item_id");
                 $item_data = mysqli_fetch_assoc($item_query);
+                $part_no = mysqli_real_escape_string($conn, $item_data['item_code'] ?? '');
                 $desc = mysqli_real_escape_string($conn, $item_data['description'] ?? '');
                 $loc = mysqli_real_escape_string($conn, $item_data['location'] ?? '');
 
-                mysqli_query($conn, "INSERT INTO job_items (job_id, item_id, qty, description, remark) 
-                                     VALUES ($job_id, $item_id, $add_qty, '$desc', '$loc') 
-                                     ON DUPLICATE KEY UPDATE qty = qty + $add_qty");
+                mysqli_query($conn, "INSERT INTO job_items (job_id, item_id, part_no, qty, description, remark) 
+                                     VALUES ($job_id, $item_id, '$part_no', $add_qty, '$desc', '$loc') 
+                                     ON DUPLICATE KEY UPDATE qty = qty + $add_qty, part_no = '$part_no'");
                 $added_count++;
             }
         }
