@@ -134,15 +134,16 @@ if(isset($_POST['add_items_to_job'])) {
             $add_qty = isset($_POST['item_qty'][$item_id]) ? (int)$_POST['item_qty'][$item_id] : 1;
 
             if($add_qty > 0) {
-                $item_query = mysqli_query($conn, "SELECT item_code, description, location FROM items WHERE id=$item_id");
+                $item_query = mysqli_query($conn, "SELECT item_code, description, location, image FROM items WHERE id=$item_id");
                 $item_data = mysqli_fetch_assoc($item_query);
                 $part_no = mysqli_real_escape_string($conn, $item_data['item_code'] ?? '');
                 $desc = mysqli_real_escape_string($conn, $item_data['description'] ?? '');
                 $loc = mysqli_real_escape_string($conn, $item_data['location'] ?? '');
+                $img = mysqli_real_escape_string($conn, $item_data['image'] ?? '');
 
-                mysqli_query($conn, "INSERT INTO job_items (job_id, item_id, part_no, qty, description, remark) 
-                                     VALUES ($job_id, $item_id, '$part_no', $add_qty, '$desc', '$loc') 
-                                     ON DUPLICATE KEY UPDATE qty = qty + $add_qty, part_no = '$part_no'");
+                mysqli_query($conn, "INSERT INTO job_items (job_id, item_id, part_no, qty, description, remark, image) 
+                                     VALUES ($job_id, $item_id, '$part_no', $add_qty, '$desc', '$loc', '$img') 
+                                     ON DUPLICATE KEY UPDATE qty = qty + $add_qty, part_no = '$part_no', image = '$img'");
                 $added_count++;
             }
         }
