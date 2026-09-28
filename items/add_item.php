@@ -173,12 +173,72 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Warehouse - Add New Item</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome CDN for sidebar icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         body { background:#1e293b; color: white; font-family:'Segoe UI', sans-serif; }
-        .sidebar { width:260px; height:100vh; background:#111827; position:fixed; left:0; top:0; overflow:auto; z-index: 100; }
-        .logo { background:#f97316; padding:18px; text-align:center; font-size:20px; font-weight:bold; color:white; }
-        .sidebar a { display:block; padding:12px 18px; color:white; text-decoration:none; transition:.3s; }
-        .sidebar a:hover, .sidebar .active { background:#f97316; }
+
+        /* SIDEBAR WITH MODERN ICON STYLING (same as dashboard) */
+        .sidebar {
+            width: 260px;
+            height: 100vh;
+            background: #1a2232;
+            position: fixed;
+            left: 0;
+            top: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .logo {
+            background: #f97316;
+            padding: 18px 20px;
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            color: white;
+            letter-spacing: 0.5px;
+        }
+        .sidebar-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .sidebar a {
+            display: flex;
+            align-items: center;
+            padding: 13px 20px;
+            color: #d1d5db;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 500;
+            transition: background 0.2s, color 0.2s;
+            border-left: 4px solid transparent;
+        }
+        .sidebar a i {
+            font-size: 18px;
+            width: 30px;
+            text-align: center;
+            margin-right: 12px;
+            color: #9ca3af;
+            transition: color 0.2s;
+        }
+        .sidebar a:hover {
+            background: #131924;
+            color: #ffffff;
+        }
+        .sidebar a:hover i {
+            color: #ffffff;
+        }
+        .sidebar a.active {
+            background: #131924;
+            color: #ffffff;
+            border-left: 4px solid #f97316;
+        }
+        .sidebar a.active i {
+            color: #ffffff;
+        }
+
+        /* PAGE LAYOUT */
         .main { margin-left:260px; padding:20px; }
         .card-box { background:#1f2937; padding:25px; border-radius:15px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
         .form-control, .form-select { background-color: #374151; border: 1px solid #4b5563; color: white; }
@@ -189,21 +249,50 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
 </head>
 <body>
 
+    <!-- SIDEBAR (icons + original hyperlinks) -->
     <div class="sidebar">
         <div class="logo">WAREHOUSE SYSTEM</div>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/dashboard.php">🏠 Dashboard</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/item_list.php">📦 Items</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/add_item.php" class="active">➕ Add Item</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/import_excel.php">📥 Import Excel</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/create_job.php">📋 Create Job</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/job_list.php">📝 Job List</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/stock_in.php">⬆ Stock In</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/stock_out.php">⬇ Stock Out</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/return_item.php">↩ Returns</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/stock/missing_item.php">❌ Missing</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/barcode/print_barcode.php">📷 Scanner</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/reports/stock_report.php">📊 Reports</a>
-        <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/logout.php">🚪 Logout</a>
+        <div class="sidebar-menu">
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/dashboard.php">
+                <i class="fa-solid fa-gauge-high"></i> Dashboard
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/item_list.php">
+                <i class="fa-solid fa-box-archive"></i> Items
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/add_item.php" class="active">
+                <i class="fa-solid fa-plus"></i> Add Item
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/import_excel.php">
+                <i class="fa-solid fa-file-import"></i> Import Excel
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/create_job.php">
+                <i class="fa-solid fa-file-circle-plus"></i> Create Job
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/job_list.php">
+                <i class="fa-solid fa-file-lines"></i> Job List
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/stock_in.php">
+                <i class="fa-solid fa-arrow-trend-up"></i> Stock In
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/stock_out.php">
+                <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/return_item.php">
+                <i class="fa-solid fa-rotate-left"></i> Returns
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/stock/missing_item.php">
+                <i class="fa-solid fa-triangle-exclamation"></i> Missing
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/barcode/print_barcode.php">
+                <i class="fa-solid fa-barcode"></i> Scanner
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/reports/stock_report.php">
+                <i class="fa-solid fa-chart-pie"></i> Reports
+            </a>
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/logout.php">
+                <i class="fa-solid fa-right-from-bracket"></i> Logout
+            </a>
+        </div>
     </div>
 
     <div class="main">
