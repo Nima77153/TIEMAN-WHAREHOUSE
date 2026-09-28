@@ -171,14 +171,13 @@ if ($overrides_query) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome CDN added below -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
     <style>
-/* SIDEBAR WITH MODERN ICON STYLING */
+/* SIDEBAR WITH MODERN ICON STYLING (single source of truth for the sidebar) */
         .sidebar { 
-            width: 250px; 
+            width: 260px; 
             height: 100vh; 
             background: #1a2232; 
             position: fixed; 
@@ -235,6 +234,16 @@ if ($overrides_query) {
         .sidebar a.active i {
             color: #ffffff;
         }
+
+/* PAGE LAYOUT (kept separate from sidebar rules above) */
+body { background: #0f172a; font-family: 'Segoe UI', sans-serif; }
+.main { margin-left: 260px; padding: 20px; }
+.topbar { background: #1f2937; padding: 15px; border-radius: 12px; color: white; margin-bottom: 20px; }
+.card-box { background: #1f2937; padding: 20px; border-radius: 15px; color: white; box-shadow: 0 5px 15px rgba(0,0,0,0.3); transition: outline 0.2s; }
+.card-box h2 { color: #f97316; font-size: 32px; }
+.card-box h2.text-success { color: #10b981 !important; }
+.card-box h2.text-danger { color: #ef4444 !important; }
+.editing-active .card-box h2, .editing-active .card-box p { outline: 1px dashed #f97316; cursor: text; }
 </style>
 <form id="dashForm" method="POST" action="" style="display:none;">
     <input type="hidden" name="save_dashboard_form" value="1">
@@ -248,10 +257,10 @@ if ($overrides_query) {
     <div class="sidebar">
         <div class="logo">WAREHOUSE</div>
         <div class="sidebar-menu">
-            <a href="dashboard.php">
+            <a href="dashboard.php" class="active">
                 <i class="fa-solid fa-gauge-high"></i> Dashboard
             </a>
-            <a href="items/item_list.php" class="active">
+            <a href="items/item_list.php">
                 <i class="fa-solid fa-box-archive"></i> Items
             </a>
             <a href="items/add_item.php">
@@ -289,6 +298,7 @@ if ($overrides_query) {
             </a>
         </div>
     </div>
+<div class="main">
 <div class="topbar d-flex justify-content-between align-items-center">
     <h4>Warehouse Dashboard</h4>
     <div class="d-flex align-items-center gap-2">
@@ -300,7 +310,6 @@ if ($overrides_query) {
     </div>
 </div>
 
-<div class="main">
     <div class="row g-3" id="editableCardRow">
         <div class="col-md-2">
             <div class="card-box">
@@ -362,21 +371,6 @@ if ($overrides_query) {
         </table>
     </div>
 </div>
-
-<style>
-body { background: #0f172a; font-family: 'Segoe UI', sans-serif; }
-.sidebar { width: 260px; height: 100vh; position: fixed; background: #111827; color: white; overflow-y: auto; }
-.sidebar .logo { background: #f97316; padding: 18px; font-size: 20px; font-weight: bold; text-align: center; }
-.sidebar a { display: block; padding: 12px 18px; color: white; text-decoration: none; transition: 0.3s; }
-.sidebar a:hover { background: #f97316; }
-.main { margin-left: 260px; padding: 20px; }
-.topbar { background: #1f2937; padding: 15px; border-radius: 12px; color: white; margin-bottom: 20px; }
-.card-box { background: #1f2937; padding: 20px; border-radius: 15px; color: white; box-shadow: 0 5px 15px rgba(0,0,0,0.3); transition: outline 0.2s; }
-.card-box h2 { color: #f97316; font-size: 32px; }
-.card-box h2.text-success { color: #10b981 !important; }
-.card-box h2.text-danger { color: #ef4444 !important; }
-.editing-active .card-box h2, .editing-active .card-box p { outline: 1px dashed #f97316; cursor: text; }
-</style>
 
 <script>
 const targets = ['d_total', 't_total', 'd_instock', 't_instock', 'd_outstock', 't_outstock', 'd_jobs', 't_jobs', 'd_missing', 't_missing', 'd_lowstock', 't_lowstock'];
