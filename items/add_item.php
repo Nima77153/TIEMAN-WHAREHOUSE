@@ -271,7 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
             <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/job_list.php">
                 <i class="fa-solid fa-file-lines"></i> Job List
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/stock_in.php">
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/stock/stock_in.php">
                 <i class="fa-solid fa-arrow-trend-up"></i> Stock In
             </a>
             <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/items/stock_out.php">
@@ -283,7 +283,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
             <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/stock/missing_item.php">
                 <i class="fa-solid fa-triangle-exclamation"></i> Missing
             </a>
-            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/barcode/print_barcode.php">
+            <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/scaner.php">
                 <i class="fa-solid fa-barcode"></i> Scanner
             </a>
             <a href="http://172.20.10.7/TIEMAN%20WAREHOUSE/reports/stock_report.php">
