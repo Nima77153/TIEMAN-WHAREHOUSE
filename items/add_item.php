@@ -253,13 +253,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
     <div class="sidebar">
         <div class="logo">WAREHOUSE SYSTEM</div>
           <div class="sidebar-menu">
-            <a href="dashboard.php" class="active">
+            <a href="dashboard.php">
                 <i class="fa-solid fa-gauge-high"></i> Dashboard
             </a>
             <a href="items/item_list.php">
                 <i class="fa-solid fa-box-archive"></i> Items
             </a>
-            <a href="items/add_item.php">
+            <a href="items/add_item.php"class="active">
                 <i class="fa-solid fa-plus"></i> Add Item
             </a>
             <a href="import_excel.php">
