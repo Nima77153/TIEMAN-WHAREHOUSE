@@ -49,14 +49,28 @@ if(isset($_POST['import']))
     $excelFile     = $_FILES['excel']['tmp_name'];
     $fileExtension = strtolower(pathinfo($excelRealName, PATHINFO_EXTENSION));
 
-    if (!in_array($fileExtension, ['xlsx', 'xls'])) {
-        echo "<script>alert('Error: Slot 1 accepts ONLY true Excel files (.xlsx / .xls).'); window.history.back();</script>";
+    if (!in_array($fileExtension, ['xlsx', 'xls', 'pdf'])) {
+        echo "<script>alert('Error: Slot 1 accepts only Excel files (.xlsx / .xls) or a PDF (.pdf).'); window.history.back();</script>";
         exit;
     }
 
     $target_dir = 'uploads/items/';
     if(!is_dir($target_dir)) {
         mkdir($target_dir, 0777, true);
+    }
+
+    // ==========================================
+    // SLOT 1 UPLOADED AS PDF: save it and stop here.
+    // There is no spreadsheet data to parse from a PDF,
+    // so the item-sync logic below only runs for xlsx/xls.
+    // ==========================================
+    if ($fileExtension === 'pdf') {
+        move_uploaded_file($excelFile, $target_dir . $excelRealName);
+        echo "<script>
+        alert('PDF received and saved. No spreadsheet rows to sync since this was a PDF, not an Excel file.');
+        window.location='items/item_list.php';
+        </script>";
+        exit;
     }
 
     $extracted_zip_files = [];
@@ -192,10 +206,14 @@ if(isset($_POST['import']))
                     $img_to_save = !empty($final_image_name) ? $final_image_name : $existing['image'];
                     $pdf_to_save = !empty($final_pdf_name) ? $final_pdf_name : $existing['pdf_document'];
 
-                    // FIXED: ONLY update image/pdf fields. Do not touch stock totals, quantities, names, or location records!
+                    // Keep Part No (item_code, used in WHERE), Description and Image in sync on every
+                    // import, matching Add Item. Stock totals, quantities, and location are still
+                    // left untouched here on purpose so re-importing never overwrites live stock counts.
                     mysqli_query($conn, "
                         UPDATE items 
                         SET 
+                        item_name='$item_name',
+                        description='$description',
                         image='$img_to_save',
                         pdf_document='$pdf_to_save'
                         WHERE item_code='$item_code'
@@ -226,14 +244,73 @@ if(isset($_POST['import']))
 <head>
     <meta charset="UTF-8">
     <title>AI Smart Importer - Warehouse</title>
+    <!-- Font Awesome CDN for sidebar icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
         body { background: #f4f6f9; color: #333; }
-        .sidebar { width: 250px; height: 100vh; background: #111827; position: fixed; left: 0; top: 0; overflow: auto; z-index: 100; }
-        .logo { padding: 20px; font-size: 22px; font-weight: bold; color: #fff; text-align: center; background: #f97316; }
-        .sidebar a { display: block; padding: 15px; color: #fff; text-decoration: none; transition: 0.3s; }
-        .sidebar a:hover { background: #f97316; }
-        .main { margin-left: 250px; padding: 20px; min-height: calc(100vh - 60px); }
+
+        /* SIDEBAR WITH MODERN ICON STYLING (same as dashboard) */
+        .sidebar {
+            width: 260px;
+            height: 100vh;
+            background: #1a2232;
+            position: fixed;
+            left: 0;
+            top: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .logo {
+            background: #f97316;
+            padding: 18px 20px;
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            color: white;
+            letter-spacing: 0.5px;
+        }
+        .sidebar-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .sidebar a {
+            display: flex;
+            align-items: center;
+            padding: 13px 20px;
+            color: #d1d5db;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 500;
+            transition: background 0.2s, color 0.2s;
+            border-left: 4px solid transparent;
+        }
+        .sidebar a i {
+            font-size: 18px;
+            width: 30px;
+            text-align: center;
+            margin-right: 12px;
+            color: #9ca3af;
+            transition: color 0.2s;
+        }
+        .sidebar a:hover {
+            background: #131924;
+            color: #ffffff;
+        }
+        .sidebar a:hover i {
+            color: #ffffff;
+        }
+        .sidebar a.active {
+            background: #131924;
+            color: #ffffff;
+            border-left: 4px solid #f97316;
+        }
+        .sidebar a.active i {
+            color: #ffffff;
+        }
+
+        .main { margin-left: 260px; padding: 20px; min-height: calc(100vh - 60px); }
         .topbar { background: white; padding: 15px 30px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,.05); display: flex; justify-content: space-between; align-items: center; }
         .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,.05); max-width: 650px; }
         .form-group { margin-bottom: 20px; }
@@ -241,19 +318,54 @@ if(isset($_POST['import']))
         .form-control { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; background: #f9fafb; }
         .btn-success { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; background: #10b981; color: white; font-weight: bold; width: 100%; }
         .btn-success:hover { background: #059669; }
-        .footer { margin-left: 250px; background: #111827; color: #9ca3af; text-align: center; padding: 15px; position: fixed; bottom: 0; right: 0; left: 0; }
+        .footer { margin-left: 260px; background: #111827; color: #9ca3af; text-align: center; padding: 15px; position: fixed; bottom: 0; right: 0; left: 0; }
     </style>
 </head>
 <body>
 
     <div class="sidebar">
         <div class="logo">WAREHOUSE</div>
-        <a href="dashboard.php">🏠 Dashboard</a>
-        <a href="items/item_list.php">📦 Items</a>
-        <a href="items/add_item.php">➕ Add Item</a>
-        <a href="import_excel.php">📥 Import Excel</a>
-        <a href="jobs/job_list.php">📝 Job List</a>
-        <a href="logout.php">🚪 Logout</a>
+        <div class="sidebar-menu">
+            <a href="../dashboard.php">
+                <i class="fa-solid fa-gauge-high"></i> Dashboard
+            </a>
+            <a href="item_list.php" class="active">
+                <i class="fa-solid fa-box-archive"></i> Items
+            </a>
+            <a href="add_item.php">
+                <i class="fa-solid fa-plus"></i> Add Item
+            </a>
+            <a href="import_excel.php">
+                <i class="fa-solid fa-file-import"></i> Import Excel
+            </a>
+            <a href="../create_job.php">
+                <i class="fa-solid fa-file-circle-plus"></i> Create Job
+            </a>
+            <a href="../job_list.php">
+                <i class="fa-solid fa-file-lines"></i> Job List
+            </a>
+            <a href="../stock/stock_in.php">
+                <i class="fa-solid fa-arrow-trend-up"></i> Stock In
+            </a>
+            <a href="stock_out.php">
+                <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
+            </a>
+            <a href="../return_item.php">
+                <i class="fa-solid fa-rotate-left"></i> Returns
+            </a>
+            <a href="../stock/missing_item.php">
+                <i class="fa-solid fa-triangle-exclamation"></i> Missing
+            </a>
+            <a href="../scaner.php">
+                <i class="fa-solid fa-barcode"></i> Scanner
+            </a>
+            <a href="../reports/stock_report.php">
+                <i class="fa-solid fa-chart-pie"></i> Reports
+            </a>
+            <a href="../logout.php">
+                <i class="fa-solid fa-right-from-bracket"></i> Logout
+            </a>
+        </div>
     </div>
 
     <div class="main">
@@ -266,10 +378,10 @@ if(isset($_POST['import']))
             <h3 style="margin-bottom: 20px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px;">Upload Inventory</h3>
             <form method="POST" enctype="multipart/form-data">
                 <div class="form-group">
-                    <label>1. Select Master Excel File (.xlsx / .xls)</label>
-                    <input type="file" name="excel" class="form-control" accept=".xlsx, .xls" required>
+                    <label>1. Select Master File (.xlsx / .xls / .pdf)</label>
+                    <input type="file" name="excel" class="form-control" accept=".xlsx, .xls, .pdf" required>
                     <small style="color:#f97316; display:block; margin-top:5px;">
-                        ✨ <strong>AI Mode Active:</strong> Images inside your spreadsheet cells will be automatically extracted!
+                        ✨ <strong>AI Mode Active:</strong> Images inside your spreadsheet cells will be automatically extracted! If you upload a PDF here instead, it will just be saved — no rows to sync.
                     </small>
                 </div>
 
