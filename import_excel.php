@@ -326,7 +326,7 @@ if(isset($_POST['import']))
       <div class="sidebar">
         <div class="logo">WAREHOUSE SYSTEM</div>
         <div class="sidebar-menu">
-            <a href="dashboard.php"
+            <a href="dashboard.php">
                 <i class="fa-solid fa-gauge-high"></i> Dashboard
             </a>
             <a href="items/item_list.php">
