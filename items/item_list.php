@@ -205,6 +205,27 @@ if (isset($_POST['export_excel_action'])) {
     exit;
 }
 
+// ==========================================
+// BATCH DELETE SELECTED ITEMS
+// (New: this backend was missing before, so the
+// "Delete Selected Records" button did nothing.)
+// ==========================================
+if (isset($_POST['batch_delete']) && !empty($_POST['selected_items']) && is_array($_POST['selected_items'])) {
+    $ids_to_delete = array_map('intval', $_POST['selected_items']);
+    $ids_to_delete = array_filter($ids_to_delete, function($v) { return $v > 0; });
+
+    if (!empty($ids_to_delete)) {
+        $id_list = implode(',', $ids_to_delete);
+        $conn->query("DELETE FROM items WHERE id IN ($id_list)");
+    }
+
+    // Redirect back to the same filtered/sorted view so the list
+    // (and scroll-restore script below) lands in the same place.
+    $redirect_qs = $_SERVER['QUERY_STRING'] ?? '';
+    header("Location: item_list.php" . (!empty($redirect_qs) ? '?' . $redirect_qs : ''));
+    exit;
+}
+
 $search = isset($_GET['search']) ? trim($_GET['search']) : "";
 $search_param = "%".$search."%";
 $category_filter = isset($_GET['category_filter']) ? trim($_GET['category_filter']) : "";
@@ -354,47 +375,47 @@ $result = $stmt->get_result();
 </head>
 <body>
 
-    <!-- COMPLETE SIDEBAR WITH ALL SPECIFIED MENU ITEMS -->
+    <!-- SIDEBAR -->
     <div class="sidebar">
         <div class="logo">WAREHOUSE</div>
         <div class="sidebar-menu">
-            <a href="../dashboard.php">
+            <a href="dashboard.php">
                 <i class="fa-solid fa-gauge-high"></i> Dashboard
             </a>
-            <a href="item_list.php" class="active">
+            <a href="items/item_list.php" class="active">
                 <i class="fa-solid fa-box-archive"></i> Items
             </a>
-            <a href="add_item.php">
+            <a href="items/add_item.php">
                 <i class="fa-solid fa-plus"></i> Add Item
             </a>
             <a href="import_excel.php">
                 <i class="fa-solid fa-file-import"></i> Import Excel
             </a>
-            <a href="../create_job.php">
+            <a href="create_job.php">
                 <i class="fa-solid fa-file-circle-plus"></i> Create Job
             </a>
-            <a href="../job_list.php">
+            <a href="job_list.php">
                 <i class="fa-solid fa-file-lines"></i> Job List
             </a>
-            <a href="../stock/stock_in.php">
+            <a href="stock/stock_in.php">
                 <i class="fa-solid fa-arrow-trend-up"></i> Stock In
             </a>
-            <a href="stock_out.php">
+            <a href="items/stock_out.php">
                 <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
             </a>
-            <a href="../return_item.php">
+            <a href="return_item.php">
                 <i class="fa-solid fa-rotate-left"></i> Returns
             </a>
-            <a href="../stock/missing_item.php">
+            <a href="stock/missing_item.php">
                 <i class="fa-solid fa-triangle-exclamation"></i> Missing
             </a>
-            <a href="../scaner.php">
+            <a href="scaner.php">
                 <i class="fa-solid fa-barcode"></i> Scanner
             </a>
-            <a href="../reports/stock_report.php">
+            <a href="reports/stock_report.php">
                 <i class="fa-solid fa-chart-pie"></i> Reports
             </a>
-            <a href="../logout.php">
+            <a href="logout.php">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout
             </a>
         </div>
