@@ -7,6 +7,130 @@ if (!$conn) {
     die("<div class='alert alert-danger m-3'><b>Database Connection Error:</b> Please verify your db.php configurations.</div>");
 }
 
+// ==========================================
+// JOB REPORT TABLES (auto-create if missing)
+// ==========================================
+mysqli_query($conn, "CREATE TABLE IF NOT EXISTS job_reports (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    job_id INT NOT NULL,
+    notes TEXT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)");
+mysqli_query($conn, "CREATE TABLE IF NOT EXISTS job_report_files (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    report_id INT NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_type VARCHAR(50) NULL
+)");
+mysqli_query($conn, "CREATE TABLE IF NOT EXISTS job_report_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    report_id INT NOT NULL,
+    item_id INT NULL,
+    item_code VARCHAR(100) NULL,
+    item_name VARCHAR(255) NULL
+)");
+
+// ==========================================
+// SAVE A NEW JOB REPORT (notes + files + linked scanned items)
+// ==========================================
+if (isset($_POST['save_job_report'])) {
+    $report_job_id = (int)$_POST['job_id'];
+    $report_notes  = mysqli_real_escape_string($conn, trim($_POST['report_notes'] ?? ''));
+
+    mysqli_query($conn, "INSERT INTO job_reports (job_id, notes) VALUES ($report_job_id, '$report_notes')");
+    $new_report_id = mysqli_insert_id($conn);
+
+    // Save uploaded files (images, PDF, Excel, etc.)
+    $report_upload_dir = '../uploads/job_reports/';
+    if (!is_dir($report_upload_dir)) mkdir($report_upload_dir, 0777, true);
+
+    if (!empty($_FILES['report_files']) && is_array($_FILES['report_files']['name'])) {
+        foreach ($_FILES['report_files']['name'] as $idx => $orig_name) {
+            if (empty($orig_name)) continue;
+            if ($_FILES['report_files']['error'][$idx] === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
+                $safe_name = 'report_' . $new_report_id . '_' . time() . '_' . $idx . '.' . $ext;
+                move_uploaded_file($_FILES['report_files']['tmp_name'][$idx], $report_upload_dir . $safe_name);
+
+                $safe_name_escaped = mysqli_real_escape_string($conn, $safe_name);
+                $ext_escaped = mysqli_real_escape_string($conn, $ext);
+                mysqli_query($conn, "INSERT INTO job_report_files (report_id, file_name, file_type) VALUES ($new_report_id, '$safe_name_escaped', '$ext_escaped')");
+            }
+        }
+    }
+
+    // Save linked scanned/searched items
+    $linked_items_json = $_POST['linked_items_json'] ?? '[]';
+    $linked_items = json_decode($linked_items_json, true);
+    if (is_array($linked_items)) {
+        foreach ($linked_items as $li) {
+            $li_code = mysqli_real_escape_string($conn, trim($li['item_code'] ?? ''));
+            $li_name = mysqli_real_escape_string($conn, trim($li['item_name'] ?? ''));
+            if (empty($li_code)) continue;
+
+            $item_lookup_res = mysqli_query($conn, "SELECT id FROM items WHERE item_code = '$li_code' LIMIT 1");
+            $item_lookup = $item_lookup_res ? mysqli_fetch_assoc($item_lookup_res) : null;
+            $li_item_id = $item_lookup ? (int)$item_lookup['id'] : 'NULL';
+
+            mysqli_query($conn, "INSERT INTO job_report_items (report_id, item_id, item_code, item_name) VALUES ($new_report_id, $li_item_id, '$li_code', '$li_name')");
+        }
+    }
+
+    header("Location: stock_report.php?report_saved=1&opened_job=$report_job_id#job-panel");
+    exit;
+}
+
+// Helper: render every saved report for one job (notes, file attachments, linked items)
+function renderJobReports($conn, $job_id) {
+    $reports_q = mysqli_query($conn, "SELECT * FROM job_reports WHERE job_id = $job_id ORDER BY id DESC");
+    if (!$reports_q || mysqli_num_rows($reports_q) == 0) {
+        return "<p class='text-muted small mb-0'>No reports created for this job yet.</p>";
+    }
+
+    $html = '';
+    while ($rep = mysqli_fetch_assoc($reports_q)) {
+        $rid = $rep['id'];
+        $html .= "<div class='saved-report-card'>";
+        $html .= "<div class='d-flex justify-content-between align-items-center mb-1'>";
+        $html .= "<strong class='small text-dark'>📝 Report #$rid</strong>";
+        $html .= "<span class='text-muted small'>" . date('d M Y H:i', strtotime($rep['created_at'])) . "</span>";
+        $html .= "</div>";
+
+        if (!empty($rep['notes'])) {
+            $html .= "<p class='small mb-2' style='white-space:pre-wrap;'>" . htmlspecialchars($rep['notes']) . "</p>";
+        }
+
+        // Attached files
+        $files_q = mysqli_query($conn, "SELECT * FROM job_report_files WHERE report_id = $rid");
+        if ($files_q && mysqli_num_rows($files_q) > 0) {
+            $html .= "<div class='d-flex flex-wrap gap-2 mb-2'>";
+            while ($f = mysqli_fetch_assoc($files_q)) {
+                $file_url = '../uploads/job_reports/' . rawurlencode($f['file_name']);
+                $is_image = in_array(strtolower($f['file_type']), ['jpg','jpeg','png','gif','webp']);
+                if ($is_image) {
+                    $html .= "<a href='$file_url' target='_blank' title='" . htmlspecialchars($f['file_name']) . "'><img src='$file_url' class='report-file-thumb' alt='attachment'></a>";
+                } else {
+                    $html .= "<a href='$file_url' target='_blank' class='report-file-link'>📄 " . htmlspecialchars($f['file_name']) . "</a>";
+                }
+            }
+            $html .= "</div>";
+        }
+
+        // Linked items
+        $items_q = mysqli_query($conn, "SELECT * FROM job_report_items WHERE report_id = $rid");
+        if ($items_q && mysqli_num_rows($items_q) > 0) {
+            $html .= "<div class='d-flex flex-wrap gap-1'>";
+            while ($li = mysqli_fetch_assoc($items_q)) {
+                $html .= "<span class='linked-item-chip-view'>[" . htmlspecialchars($li['item_code']) . "] " . htmlspecialchars($li['item_name']) . "</span>";
+            }
+            $html .= "</div>";
+        }
+
+        $html .= "</div>";
+    }
+    return $html;
+}
+
 // EXACT MATCHING IMAGE RESOLVER FROM item_list.php
 function getItemImage($imageName) {
     $cleanName = trim(strip_tags($imageName));
@@ -54,11 +178,31 @@ if ($job_query) {
     }
 }
 
-// --- 2. FETCH STORE INVENTORY DATA ---
-$store_query = mysqli_query($conn, "SELECT id, item_code, item_name, barcode, stock_qty, image, remark FROM items ORDER BY id DESC");
+// --- 2. FETCH STORE INVENTORY DATA (with optional category filter, e.g. Store Tieman) ---
+$store_category_filter = isset($_GET['store_category']) ? trim($_GET['store_category']) : '';
+
+if (!empty($store_category_filter)) {
+    $safe_category = mysqli_real_escape_string($conn, $store_category_filter);
+    $store_query = mysqli_query($conn, "SELECT id, item_code, item_name, barcode, stock_qty, image, remark, category FROM items WHERE category = '$safe_category' ORDER BY id DESC");
+} else {
+    $store_query = mysqli_query($conn, "SELECT id, item_code, item_name, barcode, stock_qty, image, remark, category FROM items ORDER BY id DESC");
+}
+
+// Pull the distinct categories actually in use, so the filter dropdown always matches real data
+$category_options_query = mysqli_query($conn, "SELECT DISTINCT category FROM items WHERE category IS NOT NULL AND category != '' ORDER BY category ASC");
+$category_options = [];
+if ($category_options_query) {
+    while ($c = mysqli_fetch_assoc($category_options_query)) {
+        $category_options[] = $c['category'];
+    }
+}
+
 $stock_in_query = mysqli_query($conn, "SELECT id, item_code, item_name, barcode, stock_qty, image, remark FROM items WHERE stock_qty > 0 ORDER BY id DESC LIMIT 15");
 $stock_out_query = mysqli_query($conn, "SELECT id, item_code, item_name, barcode, stock_qty, image, remark FROM items WHERE stock_qty = 0 ORDER BY id DESC LIMIT 15");
 $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_name, j.status, j.created_at AS trans_date, i.item_name, i.item_code, i.barcode, i.image, i.remark FROM job_items ji JOIN jobs j ON ji.job_id = j.id JOIN items i ON ji.item_id = i.id ORDER BY j.id DESC LIMIT 15");
+
+$opened_job = isset($_GET['opened_job']) ? (int)$_GET['opened_job'] : 0;
+$report_saved = isset($_GET['report_saved']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -69,13 +213,72 @@ $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_n
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    <!-- Font Awesome CDN for sidebar icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         body { background:#f8fafc; font-family:'Segoe UI', sans-serif; }
-        .sidebar { width:250px; height:100vh; background:#111827; position:fixed; left:0; top:0; overflow:auto; z-index: 100; }
-        .logo { background:#f97316; padding:20px; text-align:center; font-size:22px; font-weight:bold; color:white; }
-        .sidebar a { display:block; padding:15px; color:white; text-decoration:none; transition:.3s; }
-        .sidebar a:hover, .sidebar .active { background:#f97316; }
-        .main { margin-left:250px; padding:20px; }
+
+        /* SIDEBAR WITH MODERN ICON STYLING (same as dashboard / items / job list / create job) */
+        .sidebar {
+            width: 260px;
+            height: 100vh;
+            background: #1a2232;
+            position: fixed;
+            left: 0;
+            top: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .logo {
+            background: #f97316;
+            padding: 18px 20px;
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            color: white;
+            letter-spacing: 0.5px;
+        }
+        .sidebar-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .sidebar a {
+            display: flex;
+            align-items: center;
+            padding: 13px 20px;
+            color: #d1d5db;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 500;
+            transition: background 0.2s, color 0.2s;
+            border-left: 4px solid transparent;
+        }
+        .sidebar a i {
+            font-size: 18px;
+            width: 30px;
+            text-align: center;
+            margin-right: 12px;
+            color: #9ca3af;
+            transition: color 0.2s;
+        }
+        .sidebar a:hover {
+            background: #131924;
+            color: #ffffff;
+        }
+        .sidebar a:hover i {
+            color: #ffffff;
+        }
+        .sidebar a.active {
+            background: #131924;
+            color: #ffffff;
+            border-left: 4px solid #f97316;
+        }
+        .sidebar a.active i {
+            color: #ffffff;
+        }
+
+        .main { margin-left:260px; padding:20px; }
         .card-box { background:white; padding:20px; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.05); margin-bottom: 20px;}
         
         /* TABLE & IMAGE CONTAINER MATCHING YOUR SCREENSHOT EXACTLY */
@@ -114,6 +317,23 @@ $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_n
             font-size: 13px;
         }
 
+        /* STORE CATEGORY FILTER BAR */
+        .category-filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+        .category-chip { padding: 6px 14px; border-radius: 20px; border: 1px solid #cbd5e1; background: #ffffff; color: #334155; font-size: 13px; font-weight: 600; text-decoration: none; }
+        .category-chip.active-chip { background: #f97316; border-color: #f97316; color: #ffffff; }
+        .category-chip:hover { border-color: #f97316; color: #f97316; }
+        .category-chip.active-chip:hover { color: #ffffff; }
+
+        /* JOB REPORT BUILDER */
+        .report-builder-box { background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px; padding:14px; margin-top:12px; }
+        .linked-items-list { display:flex; flex-wrap:wrap; gap:6px; min-height: 28px; }
+        .linked-item-chip { background:#eef2ff; color:#3730a3; padding:4px 10px; border-radius:14px; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:6px; }
+        .linked-item-chip a { color:#ef4444; text-decoration:none; font-weight:bold; }
+        .saved-report-card { background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-top:10px; }
+        .report-file-thumb { width:60px; height:60px; object-fit:cover; border-radius:6px; border:1px solid #cbd5e1; }
+        .report-file-link { font-size:12px; background:#f1f5f9; padding:6px 10px; border-radius:6px; text-decoration:none; color:#334155; }
+        .linked-item-chip-view { background:#f0fdf4; color:#166534; padding:3px 8px; border-radius:12px; font-size:11px; font-weight:600; }
+
         #qr-reader { width: 100%; max-width: 400px; margin: 0 auto; background: #111; border: 2px dashed #f97316!important; border-radius: 8px; overflow: hidden; }
         #qr-reader video { width: 100%!important; height: auto !important; }
         .nav-tabs .nav-link { font-weight: bold; color: #4b5563; border-radius: 8px 8px 0 0; padding: 12px 25px; }
@@ -132,15 +352,50 @@ $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_n
 </head>
 <body>
 
+    <!-- SIDEBAR -->
     <div class="sidebar">
         <div class="logo">WAREHOUSE</div>
-        <a href="../dashboard.php">🏠 Dashboard</a>
-        <a href="../items/item_list.php">📦 Items</a>
-        <a href="../items/stock_in.php">⬆️ Stock In</a>
-        <a href="../items/stock_out.php">⬇️ Stock Out</a>
-        <a href="../jobs/job_list.php">📝 Job List</a>
-        <a href="stock_report.php" class="active">📊 Master Reports</a>
-        <a href="../logout.php">🚪 Logout</a>
+        <div class="sidebar-menu">
+            <a href="../dashboard.php">
+                <i class="fa-solid fa-gauge-high"></i> Dashboard
+            </a>
+            <a href="../items/item_list.php">
+                <i class="fa-solid fa-box-archive"></i> Items
+            </a>
+            <a href="../items/add_item.php">
+                <i class="fa-solid fa-plus"></i> Add Item
+            </a>
+            <a href="../import_excel.php">
+                <i class="fa-solid fa-file-import"></i> Import Excel
+            </a>
+            <a href="../create_job.php">
+                <i class="fa-solid fa-file-circle-plus"></i> Create Job
+            </a>
+            <a href="../job_list.php">
+                <i class="fa-solid fa-file-lines"></i> Job List
+            </a>
+            <a href="../stock/stock_in.php">
+                <i class="fa-solid fa-arrow-trend-up"></i> Stock In
+            </a>
+            <a href="../items/stock_out.php">
+                <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
+            </a>
+            <a href="../return_item.php">
+                <i class="fa-solid fa-rotate-left"></i> Returns
+            </a>
+            <a href="../stock/missing_item.php">
+                <i class="fa-solid fa-triangle-exclamation"></i> Missing
+            </a>
+            <a href="../scaner.php">
+                <i class="fa-solid fa-barcode"></i> Scanner
+            </a>
+            <a href="stock_report.php" class="active">
+                <i class="fa-solid fa-chart-pie"></i> Reports
+            </a>
+            <a href="../logout.php">
+                <i class="fa-solid fa-right-from-bracket"></i> Logout
+            </a>
+        </div>
     </div>
 
     <div class="main">
@@ -160,6 +415,10 @@ $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_n
             </div>
         </div>
 
+        <?php if ($report_saved): ?>
+            <div class="alert alert-success">✅ Report saved successfully.</div>
+        <?php endif; ?>
+
         <div class="row g-3">
             <div class="col-lg-4">
                 <div class="card-box text-center sticky-top" style="top: 20px; z-index: 10;">
@@ -173,6 +432,7 @@ $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_n
 
                     <input type="text" id="search_box" class="form-control form-control-lg border-2 text-center" placeholder="Scan barcode or input part code..." autocomplete="off">
                     <div id="db-lookup-info" class="mt-2 fw-bold text-primary small"></div>
+                    <div id="activeReportNotice" class="mt-2 small text-muted"></div>
                 </div>
             </div>
 
@@ -238,6 +498,42 @@ $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_n
                                         </tbody>
                                     </table>
                                 </div>
+
+                                <!-- JOB REPORT BUILDER -->
+                                <div class="d-flex justify-content-end mt-2">
+                                    <button type="button" class="btn btn-sm btn-outline-dark" onclick="toggleReportBuilder(<?= $id ?>)">📝 Build Report</button>
+                                </div>
+
+                                <div id="reportBuilder-<?= $id ?>" class="report-builder-box" style="display: <?= ($opened_job === $id) ? 'block' : 'none' ?>;">
+                                    <form method="POST" enctype="multipart/form-data">
+                                        <input type="hidden" name="job_id" value="<?= $id ?>">
+                                        <input type="hidden" name="linked_items_json" id="linkedItemsInput-<?= $id ?>" value="[]">
+
+                                        <div class="mb-2">
+                                            <label class="form-label small fw-bold">Report Notes</label>
+                                            <textarea name="report_notes" class="form-control" rows="3" placeholder="Type your report notes here..."></textarea>
+                                        </div>
+
+                                        <div class="mb-2">
+                                            <label class="form-label small fw-bold">Attach Images / Files (photos, PDF, Excel, etc.)</label>
+                                            <input type="file" name="report_files[]" class="form-control" multiple accept="image/*,.pdf,.xls,.xlsx,.doc,.docx">
+                                        </div>
+
+                                        <div class="mb-2">
+                                            <label class="form-label small fw-bold">Linked Items <span class="text-muted fw-normal">(open this box, then use the scanner/search on the left and click "Add to Report")</span></label>
+                                            <div id="linkedItemsList-<?= $id ?>" class="linked-items-list">
+                                                <span class="text-muted small">No items linked yet.</span>
+                                            </div>
+                                        </div>
+
+                                        <button type="submit" name="save_job_report" class="btn btn-success btn-sm">💾 Save Report</button>
+                                    </form>
+
+                                    <div class="saved-reports">
+                                        <h6 class="small fw-bold text-secondary mt-3 mb-1">Previous Reports</h6>
+                                        <?= renderJobReports($conn, $id) ?>
+                                    </div>
+                                </div>
                             </div>
                         <?php endforeach; else: ?>
                             <div class="card-box text-center py-5 text-muted"><h3>No active client tracking records found.</h3></div>
@@ -247,6 +543,20 @@ $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_n
                     <!-- STORE PANEL -->
                     <div class="tab-pane fade" id="store-panel" role="tabpanel">
                         <div class="card-box border-start border-5 border-success">
+
+                            <!-- CATEGORY QUICK FILTER (e.g. Store Tieman) -->
+                            <div class="category-filter-bar">
+                                <span class="fw-bold text-secondary small me-1">Filter by Category:</span>
+                                <a href="stock_report.php#store-panel" class="category-chip <?= empty($store_category_filter) ? 'active-chip' : '' ?>" onclick="return switchStoreTab();">All Items</a>
+                                <?php foreach ($category_options as $cat): ?>
+                                    <a href="stock_report.php?store_category=<?= urlencode($cat) ?>#store-panel"
+                                       class="category-chip <?= ($store_category_filter === $cat) ? 'active-chip' : '' ?>"
+                                       onclick="return switchStoreTab();">
+                                        <?= htmlspecialchars($cat) ?>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+
                             <div class="table-responsive">
                                 <table class="table align-middle table-item-list m-0">
                                     <tbody>
@@ -259,14 +569,19 @@ $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_n
                                                     </div>
                                                 </td>
                                                 <td style="width: 180px;"><span class="part-code"><?= htmlspecialchars($item['item_code']) ?></span></td>
-                                                <td><span class="item-desc"><?= htmlspecialchars($item['item_name']) ?></span></td>
+                                                <td>
+                                                    <span class="item-desc"><?= htmlspecialchars($item['item_name']) ?></span>
+                                                    <?php if(!empty($item['category'])): ?>
+                                                        <br><span class="badge bg-secondary text-uppercase mt-1"><?= htmlspecialchars($item['category']) ?></span>
+                                                    <?php endif; ?>
+                                                </td>
                                                 <td class="text-end" style="width: 100px;">
                                                     <?php $lbl = ($item['stock_qty'] > 0) ? 'bg-success' : 'bg-danger'; ?>
                                                     <span class="badge <?= $lbl ?> fs-6"><?= $item['stock_qty'] ?></span>
                                                 </td>
                                             </tr>
                                         <?php endwhile; else: ?>
-                                            <tr><td colspan="5" class="text-center text-muted py-4">No data metrics located inside database core tables.</td></tr>
+                                            <tr><td colspan="5" class="text-center text-muted py-4">No items found<?= !empty($store_category_filter) ? ' for category "' . htmlspecialchars($store_category_filter) . '"' : '' ?>.</td></tr>
                                         <?php endif; ?>
                                     </tbody>
                                 </table>
@@ -365,6 +680,81 @@ $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_n
     </div>
 
     <script>
+        // Keep the Store Inventory tab open after a category filter reload
+        function switchStoreTab() {
+            sessionStorage.setItem('reportActiveTab', 'store-tab');
+            return true;
+        }
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedTab = sessionStorage.getItem('reportActiveTab');
+            if (savedTab) {
+                const tabBtn = document.getElementById(savedTab);
+                if (tabBtn) {
+                    const tab = new bootstrap.Tab(tabBtn);
+                    tab.show();
+                }
+                sessionStorage.removeItem('reportActiveTab');
+            }
+        });
+
+        // ==========================================
+        // JOB REPORT BUILDER: open/close, and linking
+        // scanned/searched items into the open report
+        // ==========================================
+        let activeReportJobId = null;
+        let linkedItemsMap = {}; // jobId -> array of {item_code, item_name}
+
+        function toggleReportBuilder(jobId) {
+            document.querySelectorAll('.report-builder-box').forEach(box => {
+                if (box.id !== 'reportBuilder-' + jobId) box.style.display = 'none';
+            });
+            const box = document.getElementById('reportBuilder-' + jobId);
+            const willShow = box.style.display === 'none';
+            box.style.display = willShow ? 'block' : 'none';
+            activeReportJobId = willShow ? jobId : null;
+            updateActiveReportNotice();
+        }
+
+        function updateActiveReportNotice() {
+            const notice = document.getElementById('activeReportNotice');
+            notice.innerText = activeReportJobId
+                ? '📝 Adding scanned/searched items to the open report...'
+                : '';
+        }
+
+        function addLinkedItemToActiveReport(item) {
+            if (!activeReportJobId) {
+                alert('Open "Build Report" on a job first, then scan/search an item to link it.');
+                return;
+            }
+            if (!linkedItemsMap[activeReportJobId]) linkedItemsMap[activeReportJobId] = [];
+            if (linkedItemsMap[activeReportJobId].some(i => i.item_code === item.item_code)) return;
+            linkedItemsMap[activeReportJobId].push(item);
+            renderLinkedItems(activeReportJobId);
+        }
+
+        function renderLinkedItems(jobId) {
+            const container = document.getElementById('linkedItemsList-' + jobId);
+            const items = linkedItemsMap[jobId] || [];
+            if (items.length === 0) {
+                container.innerHTML = '<span class="text-muted small">No items linked yet.</span>';
+            } else {
+                container.innerHTML = items.map((it, idx) => `
+                    <span class="linked-item-chip">
+                        [${it.item_code}] ${it.item_name}
+                        <a href="#" onclick="removeLinkedItem(${jobId}, ${idx}); return false;">✕</a>
+                    </span>
+                `).join('');
+            }
+            const hiddenInput = document.getElementById('linkedItemsInput-' + jobId);
+            if (hiddenInput) hiddenInput.value = JSON.stringify(items);
+        }
+
+        function removeLinkedItem(jobId, idx) {
+            linkedItemsMap[jobId].splice(idx, 1);
+            renderLinkedItems(jobId);
+        }
+
         // LIVE DATE AND TIME CLOCK SCRIPT
         function updateLiveClock() {
             const now = new Date();
@@ -431,16 +821,36 @@ $job_trans_query = mysqli_query($conn, "SELECT ji.job_id, j.job_no, j.customer_n
 
             let fd = new FormData(); fd.append('identifier', val);
             fetch('find_item_name.php', { method: 'POST', body: fd })
-            .then(r => r.text()).then(html => document.getElementById('db-lookup-info').innerHTML = html);
+            .then(r => r.text()).then(html => {
+                document.getElementById('db-lookup-info').innerHTML = html;
+                appendAddToReportButton();
+            });
 
+            let matchedItem = null;
             document.querySelectorAll('.item-row').forEach(row => {
                 if(row.getAttribute('data-barcode') === val || row.getAttribute('data-code') === val) {
                     row.style.backgroundColor = "#fffbeb"; 
                     row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    if (!matchedItem) {
+                        const descEl = row.querySelector('.item-desc');
+                        matchedItem = {
+                            item_code: row.getAttribute('data-code') || '',
+                            item_name: descEl ? descEl.innerText.trim() : ''
+                        };
+                    }
                 } else {
                     row.style.backgroundColor = "";
                 }
             });
+
+            window.lastMatchedItem = matchedItem;
+        }
+
+        function appendAddToReportButton() {
+            const infoBox = document.getElementById('db-lookup-info');
+            if (window.lastMatchedItem && window.lastMatchedItem.item_code) {
+                infoBox.innerHTML += ` <button type="button" class="btn btn-sm btn-outline-success mt-1" onclick='addLinkedItemToActiveReport(${JSON.stringify(window.lastMatchedItem)})'>➕ Add to Report</button>`;
+            }
         }
 
         document.getElementById('search_box').addEventListener('input', e => handleSearchAndHighlight(e.target.value));
