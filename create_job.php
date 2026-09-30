@@ -43,7 +43,9 @@ function getDynamicImagePath($image_file, $item_code = '') {
     return '/assets/images/no-image.png';
 }
 
-// FUNCTION 1: EXCEL MATRIX AUTO-PARSER (UNTOUCHED)
+// FUNCTION 1: EXCEL MATRIX AUTO-PARSER
+// Sheet layout confirmed as: B = Part No, C = Image, D = Description,
+// E = Quantity (unused here), then job columns detected dynamically (TA####).
 if(isset($_POST['import_matrix'])) {
     if(empty($_FILES['excel']['tmp_name'])) {
         echo "<script>alert('Please select a valid Excel file.'); window.history.back();</script>";
@@ -107,7 +109,8 @@ if(isset($_POST['import_matrix'])) {
             if(empty($part_no) || in_array(strtoupper($part_no), ['PART NO', 'ITEM NAME', 'TIEMAN PART NO.'])) continue;
 
             $item_code   = mysqli_real_escape_string($conn, $part_no);
-            $description = isset($row['C']) ? mysqli_real_escape_string($conn, trim($row['C'])) : '';
+            // Description lives in column D (C is the embedded Image cell)
+            $description = isset($row['D']) ? mysqli_real_escape_string($conn, trim($row['D'])) : '';
             $item_name   = substr($description, 0, 50);
             $remark_loc  = isset($row['I']) ? mysqli_real_escape_string($conn, trim($row['I'])) : '';
 
@@ -195,14 +198,73 @@ if(isset($_POST['add_items_to_job'])) {
 <head>
     <meta charset="UTF-8">
     <title>Create Job - Warehouse Management</title>
+    <!-- Font Awesome CDN for sidebar icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
-        body { background: #f4f6f9; display: flex; }
-        .sidebar { width: 260px; height: 100vh; background: #1a2232; position: fixed; color: white; }
-        .logo { padding: 20px; font-size: 20px; font-weight: bold; background: #f97316; text-align: center; }
-        .sidebar a { display: block; padding: 15px 20px; color: #cdbcbc; text-decoration: none; border-bottom: 1px solid #232f45; }
-        .sidebar a:hover { background: #f97316; color: white; }
-        .main-content { margin-left: 260px; padding: 30px; width: calc(100% - 260px); }
+        body { background: #f4f6f9; }
+
+        /* SIDEBAR WITH MODERN ICON STYLING (same as dashboard) */
+        .sidebar {
+            width: 260px;
+            height: 100vh;
+            background: #1a2232;
+            position: fixed;
+            left: 0;
+            top: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .logo {
+            background: #f97316;
+            padding: 18px 20px;
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            color: white;
+            letter-spacing: 0.5px;
+        }
+        .sidebar-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .sidebar a {
+            display: flex;
+            align-items: center;
+            padding: 13px 20px;
+            color: #d1d5db;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 500;
+            transition: background 0.2s, color 0.2s;
+            border-left: 4px solid transparent;
+        }
+        .sidebar a i {
+            font-size: 18px;
+            width: 30px;
+            text-align: center;
+            margin-right: 12px;
+            color: #9ca3af;
+            transition: color 0.2s;
+        }
+        .sidebar a:hover {
+            background: #131924;
+            color: #ffffff;
+        }
+        .sidebar a:hover i {
+            color: #ffffff;
+        }
+        .sidebar a.active {
+            background: #131924;
+            color: #ffffff;
+            border-left: 4px solid #f97316;
+        }
+        .sidebar a.active i {
+            color: #ffffff;
+        }
+
+        .main-content { margin-left: 260px; padding: 30px; }
         .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 25px; }
         .row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; }
         .form-group { margin-bottom: 15px; }
@@ -226,16 +288,60 @@ if(isset($_POST['add_items_to_job'])) {
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: middle; }
         th { background: #f8fafc; color: #4b5563; font-weight: bold; text-transform: uppercase; font-size: 12px; }
-        .item-img { width: 50px; height: 50px; object-fit: contain; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; }
+
+        /* Zoom-on-hover thumbnails, same behaviour as items/item_list.php */
+        .img-zoom-container { position: relative; width: 55px; height: 55px; margin: 0 auto; }
+        .zoomable-thumbnail { width: 55px; height: 55px; border-radius: 6px; border: 1px solid #cbd5e1; object-fit: contain; background: #ffffff; cursor: pointer; }
+        .zoom-popup-view { display: none; position: absolute; top: 50%; left: calc(100% + 20px); transform: translateY(-50%); width: 260px; height: 260px; background: #ffffff; border: 2px solid #111827; border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); z-index: 9999; padding: 5px; }
+        .zoom-popup-view img { width: 100%; height: 100%; object-fit: contain; background: #ffffff; border-radius: 8px; }
+        .img-zoom-container:hover .zoom-popup-view { display: block; }
     </style>
 </head>
 <body>
+    <!-- SIDEBAR -->
     <div class="sidebar">
         <div class="logo">WAREHOUSE</div>
-        <a href="dashboard.php">Dashboard</a>
-        <a href="item_list.php">Items</a>
-        <a href="create_job.php" style="background:#f97316; color:white;">Create Job Card</a>
-        <a href="job_list.php">Job List</a>
+        <div class="sidebar-menu">
+            <a href="dashboard.php">
+                <i class="fa-solid fa-gauge-high"></i> Dashboard
+            </a>
+            <a href="items/item_list.php">
+                <i class="fa-solid fa-box-archive"></i> Items
+            </a>
+            <a href="items/add_item.php">
+                <i class="fa-solid fa-plus"></i> Add Item
+            </a>
+            <a href="import_excel.php">
+                <i class="fa-solid fa-file-import"></i> Import Excel
+            </a>
+            <a href="create_job.php" class="active">
+                <i class="fa-solid fa-file-circle-plus"></i> Create Job
+            </a>
+            <a href="job_list.php">
+                <i class="fa-solid fa-file-lines"></i> Job List
+            </a>
+            <a href="stock/stock_in.php">
+                <i class="fa-solid fa-arrow-trend-up"></i> Stock In
+            </a>
+            <a href="items/stock_out.php">
+                <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
+            </a>
+            <a href="return_item.php">
+                <i class="fa-solid fa-rotate-left"></i> Returns
+            </a>
+            <a href="stock/missing_item.php">
+                <i class="fa-solid fa-triangle-exclamation"></i> Missing
+            </a>
+            <a href="scaner.php">
+                <i class="fa-solid fa-barcode"></i> Scanner
+            </a>
+            <a href="reports/stock_report.php">
+                <i class="fa-solid fa-chart-pie"></i> Reports
+            </a>
+            <a href="logout.php">
+                <i class="fa-solid fa-right-from-bracket"></i> Logout
+            </a>
+        </div>
     </div>
 
     <div class="main-content">
@@ -316,7 +422,12 @@ if(isset($_POST['add_items_to_job'])) {
                                         <input type="checkbox" name="selected_items[]" value="<?= $itm['id'] ?>" style="width: 18px; height: 18px; cursor: pointer;">
                                     </td>
                                     <td>
-                                        <img src="<?= htmlspecialchars($img_path) ?>" class="item-img" alt="Item Image" onerror="this.onerror=null; this.src='/assets/images/no-image.png';">
+                                        <div class="img-zoom-container">
+                                            <img src="<?= htmlspecialchars($img_path) ?>" class="zoomable-thumbnail" alt="Item Image" onerror="this.onerror=null; this.src='/assets/images/no-image.png';">
+                                            <div class="zoom-popup-view">
+                                                <img src="<?= htmlspecialchars($img_path) ?>" alt="Full Item View" onerror="this.onerror=null; this.src='/assets/images/no-image.png';">
+                                            </div>
+                                        </div>
                                     </td>
                                     <td>
                                         <strong class="search-part" style="color: #2563eb; font-family: monospace; font-size: 14px;"><?= htmlspecialchars($itm['part_no']) ?></strong>
