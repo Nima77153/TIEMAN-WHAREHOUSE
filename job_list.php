@@ -64,6 +64,48 @@ if (isset($_POST['ajax_copy_paste_items'])) {
 }
 
 // -------------------------------------------------------------
+// AJAX LIVE ITEM SEARCH (for the "Filter via Component Item Names"
+// box): returns matching items across all job cards, each with
+// its image, part no, name, which job it's on, and its qty.
+// -------------------------------------------------------------
+if (isset($_GET['ajax_search_items'])) {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json');
+
+    $q = mysqli_real_escape_string($conn, trim($_GET['q'] ?? ''));
+    $results = [];
+
+    if (strlen($q) >= 1) {
+        $sql = "SELECT i.item_code, i.item_name, i.image, ji.qty, j.job_no, j.id AS job_id
+                FROM job_items ji
+                JOIN items i ON ji.item_id = i.id
+                JOIN jobs j ON ji.job_id = j.id
+                WHERE i.item_code LIKE '%$q%' OR i.item_name LIKE '%$q%'
+                ORDER BY j.id DESC
+                LIMIT 25";
+        $res = mysqli_query($conn, $sql);
+        if ($res) {
+            while ($row = mysqli_fetch_assoc($res)) {
+                $img = !empty($row['image']) && file_exists('uploads/items/' . $row['image'])
+                       ? 'uploads/items/' . $row['image']
+                       : 'uploads/items/placeholder.png';
+                $results[] = [
+                    'item_code' => $row['item_code'],
+                    'item_name' => $row['item_name'],
+                    'image'     => $img,
+                    'job_no'    => $row['job_no'],
+                    'job_id'    => $row['job_id'],
+                    'qty'       => $row['qty']
+                ];
+            }
+        }
+    }
+
+    echo json_encode($results);
+    exit;
+}
+
+// -------------------------------------------------------------
 // ACTION: DELETE ALL ITEMS FROM A JOB
 // -------------------------------------------------------------
 if (isset($_GET['delete_all_items'])) {
@@ -199,72 +241,121 @@ $search_item = isset($_GET['search_item']) ? mysqli_real_escape_string($conn, tr
     
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
-        body { background: #f4f6f9; display: flex; }
+        body { background: #f4f6f9; }
 
-        /* EXACT SIDEBAR STYLING MATCHING YOUR CODE & SCREENSHOT */
-        .sidebar { 
-            width: 250px; 
-            height: 100vh; 
-            background: #131924; 
-            position: fixed; 
-            left: 0; 
-            top: 0; 
-            overflow-y: auto; 
-            z-index: 100; 
+        /* SIDEBAR WITH MODERN ICON STYLING (same as dashboard / items / create job) */
+        .sidebar {
+            width: 260px;
+            height: 100vh;
+            background: #1a2232;
+            position: fixed;
+            left: 0;
+            top: 0;
+            overflow-y: auto;
+            z-index: 100;
         }
-        .sidebar-header {
-            padding: 20px;
+        .logo {
+            background: #f97316;
+            padding: 18px 20px;
+            text-align: center;
             font-size: 20px;
             font-weight: bold;
-            color: #ffffff;
-            background: #f97316;
-            text-align: center;
-            letter-spacing: 1px;
+            color: white;
+            letter-spacing: 0.5px;
         }
-        .sidebar a { 
-            display: flex; 
-            align-items: center; 
-            padding: 13px 20px; 
-            color: #94a3b8; 
-            text-decoration: none; 
+        .sidebar-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .sidebar a {
+            display: flex;
+            align-items: center;
+            padding: 13px 20px;
+            color: #d1d5db;
+            text-decoration: none;
             font-size: 15px;
-            font-weight: 600;
-            transition: all 0.2s; 
+            font-weight: 500;
+            transition: background 0.2s, color 0.2s;
             border-left: 4px solid transparent;
         }
         .sidebar a i {
             font-size: 18px;
-            width: 32px;
+            width: 30px;
             text-align: center;
             margin-right: 12px;
-            color: #94a3b8;
+            color: #9ca3af;
+            transition: color 0.2s;
         }
-        .sidebar a:hover, .sidebar a.active { 
-            background: #1e293b; 
+        .sidebar a:hover {
+            background: #131924;
             color: #ffffff;
         }
-        .sidebar a:hover i, .sidebar a.active i {
+        .sidebar a:hover i {
             color: #ffffff;
         }
         .sidebar a.active {
+            background: #131924;
+            color: #ffffff;
             border-left: 4px solid #f97316;
+        }
+        .sidebar a.active i {
+            color: #ffffff;
         }
 
         /* MAIN CONTENT AREA LAYOUT ADJUSTMENT */
         .main-content { 
-            margin-left: 250px; 
-            flex: 1; 
+            margin-left: 260px; 
             padding: 30px; 
-            width: calc(100% - 250px);
         }
         .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 25px; }
 
         .dual-search-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-        .search-box-wrapper { display: flex; flex-direction: column; gap: 6px; }
+        .search-box-wrapper { display: flex; flex-direction: column; gap: 6px; position: relative; }
         .search-box-wrapper label { font-size: 13px; font-weight: bold; color: #4b5563; }
-        .search-container { display: flex; gap: 8px; }
+        .search-container { display: flex; gap: 8px; position: relative; }
         .search-input { flex: 1; padding: 10px 14px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 14px; outline: none; }
         .search-input:focus { border-color: #f97316; }
+
+        /* LIVE ITEM SEARCH DROPDOWN */
+        .item-search-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 6px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            max-height: 340px;
+            overflow-y: auto;
+            z-index: 5000;
+        }
+        .item-search-dropdown.active { display: block; }
+        .item-search-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .item-search-row:last-child { border-bottom: none; }
+        .item-search-row:hover { background: #f8fafc; }
+        .item-search-info { flex: 1; min-width: 0; }
+        .item-search-code { font-weight: bold; font-family: monospace; color: #2563eb; font-size: 13px; }
+        .item-search-name { font-size: 13px; color: #334155; margin-top: 2px; }
+        .item-search-meta { text-align: right; font-size: 12px; color: #64748b; white-space: nowrap; }
+        .item-search-meta .job-tag { color: #f97316; font-weight: bold; }
+        .item-search-empty { padding: 14px; color: #94a3b8; font-size: 13px; text-align: center; }
+
+        /* Zoom-on-hover thumbnails, same behaviour as items/item_list.php */
+        .zoom-thumb-container { position: relative; width: 48px; height: 48px; flex-shrink: 0; }
+        .zoomable-thumbnail { width: 48px; height: 48px; border-radius: 6px; border: 1px solid #cbd5e1; object-fit: contain; background: #ffffff; cursor: pointer; }
+        .zoom-popup-view { display: none; position: absolute; top: 50%; left: calc(100% + 15px); transform: translateY(-50%); width: 220px; height: 220px; background: #ffffff; border: 2px solid #111827; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); z-index: 9999; padding: 5px; }
+        .zoom-popup-view img { width: 100%; height: 100%; object-fit: contain; background: #ffffff; border-radius: 8px; }
+        .zoom-thumb-container:hover .zoom-popup-view { display: block; }
 
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: middle; }
@@ -301,25 +392,50 @@ $search_item = isset($_GET['search_item']) ? mysqli_real_escape_string($conn, tr
 </head>
 <body>
 
-    <!-- EXACT MATCHING SIDEBAR WITH UNIFIED FONT AWESOME ICONS -->
+    <!-- SIDEBAR -->
     <div class="sidebar">
-        <div class="sidebar-header">WAREHOUSE</div>
-        <a href="dashboard.php"><i class="fa-solid fa-gauge"></i> Dashboard</a>
-        <a href="items/item_list.php"><i class="fa-solid fa-box-archive"></i> Items</a>
-        <a href="items/add_item.php"><i class="fa-solid fa-plus"></i> Add Item</a>
-        <a href="import_excel.php"><i class="fa-solid fa-file-import"></i> Import Excel</a>
-        <a href="create_job.php"><i class="fa-solid fa-file-circle-plus"></i> Create Job</a>
-        <a href="job_list.php" class="active"><i class="fa-solid fa-file-lines"></i> Job List</a>
-        
-        <!-- Stock In & Stock Out with trending arrow icons -->
-        <a href="items/stock_in.php"><i class="fa-solid fa-arrow-trend-up"></i> Stock In</a>
-        <a href="items/stock_out.php"><i class="fa-solid fa-arrow-trend-down"></i> Stock Out</a>
-        
-        <a href="return_item.php"><i class="fa-solid fa-rotate-left"></i> Returns</a>
-        <a href="stock/missing_item.php"><i class="fa-solid fa-triangle-exclamation"></i> Missing</a>
-        <a href="scaner.php"><i class="fa-solid fa-barcode"></i> Scanner</a>
-        <a href="reports/stock_report.php"><i class="fa-solid fa-chart-pie"></i> Reports</a>
-        <a href="logout.php"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+        <div class="logo">WAREHOUSE</div>
+        <div class="sidebar-menu">
+            <a href="dashboard.php">
+                <i class="fa-solid fa-gauge-high"></i> Dashboard
+            </a>
+            <a href="items/item_list.php">
+                <i class="fa-solid fa-box-archive"></i> Items
+            </a>
+            <a href="items/add_item.php">
+                <i class="fa-solid fa-plus"></i> Add Item
+            </a>
+            <a href="import_excel.php">
+                <i class="fa-solid fa-file-import"></i> Import Excel
+            </a>
+            <a href="create_job.php">
+                <i class="fa-solid fa-file-circle-plus"></i> Create Job
+            </a>
+            <a href="job_list.php" class="active">
+                <i class="fa-solid fa-file-lines"></i> Job List
+            </a>
+            <a href="stock/stock_in.php">
+                <i class="fa-solid fa-arrow-trend-up"></i> Stock In
+            </a>
+            <a href="items/stock_out.php">
+                <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
+            </a>
+            <a href="return_item.php">
+                <i class="fa-solid fa-rotate-left"></i> Returns
+            </a>
+            <a href="stock/missing_item.php">
+                <i class="fa-solid fa-triangle-exclamation"></i> Missing
+            </a>
+            <a href="scaner.php">
+                <i class="fa-solid fa-barcode"></i> Scanner
+            </a>
+            <a href="reports/stock_report.php">
+                <i class="fa-solid fa-chart-pie"></i> Reports
+            </a>
+            <a href="logout.php">
+                <i class="fa-solid fa-right-from-bracket"></i> Logout
+            </a>
+        </div>
     </div>
 
     <div class="main-content">
@@ -337,11 +453,12 @@ $search_item = isset($_GET['search_item']) ? mysqli_real_escape_string($conn, tr
                 <div class="search-box-wrapper">
                     <label><i class="fa-solid fa-boxes-stacked"></i> Filter via Component Item Names:</label>
                     <div class="search-container">
-                        <input type="text" name="search_item" class="search-input" placeholder="Search Part Code or Item Name..." value="<?= htmlspecialchars($search_item) ?>">
+                        <input type="text" id="search_item_live" name="search_item" class="search-input" placeholder="Search Part Code or Item Name..." value="<?= htmlspecialchars($search_item) ?>" autocomplete="off" oninput="liveSearchItems(this.value)">
                         <button type="submit" class="btn-action"><i class="fa-solid fa-filter"></i> Apply Filters</button>
                         <?php if(!empty($search_job) || !empty($search_item)): ?>
                             <a href="job_list.php" class="btn-action btn-danger" style="line-height:20px;"><i class="fa-solid fa-rotate-right"></i> Reset</a>
                         <?php endif; ?>
+                        <div id="itemSearchDropdown" class="item-search-dropdown"></div>
                     </div>
                 </div>
             </form>
@@ -672,6 +789,65 @@ $search_item = isset($_GET['search_item']) ? mysqli_real_escape_string($conn, tr
                 afterInput.value = before;
             }
         }
+
+        // -------------------------------------------------------------
+        // LIVE ITEM SEARCH DROPDOWN (image + part no + name + job + qty)
+        // -------------------------------------------------------------
+        let itemSearchDebounce;
+        function liveSearchItems(query) {
+            clearTimeout(itemSearchDebounce);
+            const dropdown = document.getElementById('itemSearchDropdown');
+
+            if (!query || query.trim().length === 0) {
+                dropdown.classList.remove('active');
+                dropdown.innerHTML = '';
+                return;
+            }
+
+            itemSearchDebounce = setTimeout(() => {
+                fetch('job_list.php?ajax_search_items=1&q=' + encodeURIComponent(query))
+                    .then(res => res.json())
+                    .then(data => {
+                        if (!data || data.length === 0) {
+                            dropdown.innerHTML = '<div class="item-search-empty">No matching items found.</div>';
+                            dropdown.classList.add('active');
+                            return;
+                        }
+
+                        dropdown.innerHTML = data.map(item => `
+                            <div class="item-search-row">
+                                <div class="zoom-thumb-container">
+                                    <img src="${item.image}" class="zoomable-thumbnail" alt="Part">
+                                    <div class="zoom-popup-view">
+                                        <img src="${item.image}" alt="Full Part View">
+                                    </div>
+                                </div>
+                                <div class="item-search-info">
+                                    <div class="item-search-code">${item.item_code}</div>
+                                    <div class="item-search-name">${item.item_name}</div>
+                                </div>
+                                <div class="item-search-meta">
+                                    <div>Job: <span class="job-tag">${item.job_no}</span></div>
+                                    <div>Qty: <strong>${item.qty}</strong></div>
+                                </div>
+                            </div>
+                        `).join('');
+                        dropdown.classList.add('active');
+                    })
+                    .catch(() => {
+                        dropdown.innerHTML = '<div class="item-search-empty">Search failed. Try again.</div>';
+                        dropdown.classList.add('active');
+                    });
+            }, 250);
+        }
+
+        document.addEventListener('click', function(e) {
+            const dropdown = document.getElementById('itemSearchDropdown');
+            const input = document.getElementById('search_item_live');
+            if (dropdown && !dropdown.contains(e.target) && e.target !== input) {
+                dropdown.classList.remove('active');
+            }
+        });
 
         // CONTEXT MENU FUNCTIONALITY
         const statusMenu = document.getElementById('statusContextMenu');
