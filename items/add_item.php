@@ -249,47 +249,47 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_item'])) {
 </head>
 <body>
 
-    <!-- SIDEBAR (icons + original hyperlinks) -->
+    <!-- SIDEBAR (icons + corrected relative hyperlinks for this items/ folder page) -->
      <div class="sidebar">
         <div class="logo">WAREHOUSE SYSTEM</div>
         <div class="sidebar-menu">
-            <a href="dashboard.php">
+            <a href="../dashboard.php">
                 <i class="fa-solid fa-gauge-high"></i> Dashboard
             </a>
-            <a href="items/item_list.php">
+            <a href="item_list.php">
                 <i class="fa-solid fa-box-archive"></i> Items
             </a>
-            <a href="items/add_item.php" class="active">
+            <a href="add_item.php" class="active">
                 <i class="fa-solid fa-plus"></i> Add Item
             </a>
-            <a href="import_excel.php">
+            <a href="../import_excel.php">
                 <i class="fa-solid fa-file-import"></i> Import Excel
             </a>
-            <a href="create_job.php">
+            <a href="../create_job.php">
                 <i class="fa-solid fa-file-circle-plus"></i> Create Job
             </a>
-            <a href="job_list.php">
+            <a href="../job_list.php">
                 <i class="fa-solid fa-file-lines"></i> Job List
             </a>
-            <a href="stock/stock_in.php">
+            <a href="../stock/stock_in.php">
                 <i class="fa-solid fa-arrow-trend-up"></i> Stock In
             </a>
-            <a href="items/stock_out.php">
+            <a href="stock_out.php">
                 <i class="fa-solid fa-arrow-trend-down"></i> Stock Out
             </a>
-            <a href="return_item.php">
+            <a href="../return_item.php">
                 <i class="fa-solid fa-rotate-left"></i> Returns
             </a>
-            <a href="stock/missing_item.php">
+            <a href="../stock/missing_item.php">
                 <i class="fa-solid fa-triangle-exclamation"></i> Missing
             </a>
-            <a href="scaner.php">
+            <a href="../scaner.php">
                 <i class="fa-solid fa-barcode"></i> Scanner
             </a>
-            <a href="reports/stock_report.php">
+            <a href="../reports/stock_report.php">
                 <i class="fa-solid fa-chart-pie"></i> Reports
             </a>
-            <a href="logout.php">
+            <a href="../logout.php">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout
             </a>
         </div>
