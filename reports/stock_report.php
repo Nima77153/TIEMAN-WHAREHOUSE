@@ -12,7 +12,14 @@ use Dompdf\Dompdf;
 
 $q = fn($s) => mysqli_query($conn, $s);
 $e = fn($s) => mysqli_real_escape_string($conn, trim((string)$s));
-function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES); }
+function clean($s) { return trim(str_replace('\\', '', (string)$s)); }
+function h($s) { return htmlspecialchars(clean($s), ENT_QUOTES); }
+function saveUpload($key) {
+    if (empty($_FILES[$key]['name']) || $_FILES[$key]['error'] !== UPLOAD_ERR_OK) return '';
+    $dir = '../uploads/notes/'; if (!is_dir($dir)) mkdir($dir, 0777, true);
+    $f = 'note_' . time() . '_' . rand(100, 999) . '.' . strtolower(pathinfo($_FILES[$key]['name'], PATHINFO_EXTENSION));
+    move_uploaded_file($_FILES[$key]['tmp_name'], $dir . $f); return $f;
+}
 function ph() { return 'data:image/svg+xml,' . rawurlencode("<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><rect width='64' height='64' fill='#f1f5f9'/><text x='32' y='36' font-size='10' text-anchor='middle' fill='#94a3b8'>No Img</text></svg>"); }
 function imgFs($n) { // real file path on disk, or null
     $n = trim(strip_tags((string)$n)); if ($n === '' || preg_match('~^https?://~i', $n)) return null;
@@ -26,8 +33,10 @@ function img($n) { $n = trim((string)$n); if (preg_match('~^https?://~i', $n)) r
 if (!mysqli_num_rows($q("SHOW COLUMNS FROM job_items LIKE 'qty'"))) $q("ALTER TABLE job_items ADD qty INT NOT NULL DEFAULT 1");
 $q("CREATE TABLE IF NOT EXISTS stock_moves (id INT AUTO_INCREMENT PRIMARY KEY, item_id INT NOT NULL, direction VARCHAR(3) NOT NULL,
     source VARCHAR(5) NOT NULL, job_id INT NULL, qty INT NOT NULL, note TEXT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+if (!mysqli_num_rows($q("SHOW COLUMNS FROM items LIKE 'min_qty'"))) $q("ALTER TABLE items ADD min_qty INT NOT NULL DEFAULT 5");
 $q("CREATE TABLE IF NOT EXISTS report_notes (id INT AUTO_INCREMENT PRIMARY KEY, scope VARCHAR(10) NOT NULL, ref_id INT NULL,
     notes TEXT NULL, file_name VARCHAR(255) NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+if (!mysqli_num_rows($q("SHOW COLUMNS FROM report_notes LIKE 'item_id'"))) $q("ALTER TABLE report_notes ADD item_id INT NULL");
 
 // ---------- shared filters ----------
 $view = $_GET['view'] ?? 'job';
@@ -54,7 +63,7 @@ if (isset($_REQUEST['a'])) {
     if ($a === 'search') {
         $s = $e($_GET['q'] ?? ''); $out = [];
         $r = $q("SELECT id,item_code,item_name,image,stock_qty FROM items WHERE item_code LIKE '%$s%' OR item_name LIKE '%$s%' OR barcode LIKE '%$s%' ORDER BY item_code LIMIT 10");
-        while ($r && $x = mysqli_fetch_assoc($r)) { $x['img'] = img($x['image']); $x['item_name'] = (string)$x['item_name']; $out[] = $x; }
+        while ($r && $x = mysqli_fetch_assoc($r)) { $x['img'] = img($x['image']); $x['item_name'] = clean($x['item_name']); $x['item_code'] = clean($x['item_code']); $out[] = $x; }
         exit(json_encode($out));
     }
     if ($a === 'add_job_item') {
@@ -65,7 +74,7 @@ if (isset($_REQUEST['a'])) {
     if ($a === 'upd_job_item') $q("UPDATE job_items SET qty=" . max(0, (int)$_POST['qty']) . " WHERE job_id=" . (int)$_POST['job_id'] . " AND item_id=" . (int)$_POST['item_id']);
     if ($a === 'del_job_item') foreach (explode(',', $_POST['ids']) as $i) $q("DELETE FROM job_items WHERE job_id=" . (int)$_POST['job_id'] . " AND item_id=" . (int)$i);
     if ($a === 'job_status') $q("UPDATE jobs SET status='" . $e($_POST['status']) . "' WHERE id=" . (int)$_POST['job_id']);
-    if ($a === 'upd_item') $q("UPDATE items SET item_code='" . $e($_POST['item_code']) . "', item_name='" . $e($_POST['item_name']) . "', stock_qty=" . (int)$_POST['stock_qty'] . " WHERE id=" . (int)$_POST['id']);
+    if ($a === 'upd_item') $q("UPDATE items SET item_code='" . $e($_POST['item_code']) . "', item_name='" . $e($_POST['item_name']) . "', stock_qty=" . (int)$_POST['stock_qty'] . ", min_qty=" . max(0, (int)$_POST['min_qty']) . " WHERE id=" . (int)$_POST['id']);
     if ($a === 'del_item') foreach (explode(',', $_POST['ids']) as $i) $q("DELETE FROM items WHERE id=" . (int)$i);
     if ($a === 'move') {
         $i = (int)$_POST['item_id']; $n = max(1, (int)$_POST['qty']); $d = $_POST['direction'] === 'out' ? 'out' : 'in';
@@ -80,7 +89,23 @@ if (isset($_REQUEST['a'])) {
             $f = 'note_' . time() . '_' . rand(100, 999) . '.' . strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
             move_uploaded_file($_FILES['file']['tmp_name'], $dir . $f);
         }
-        $q("INSERT INTO report_notes (scope,ref_id,notes,file_name) VALUES ('" . $e($_POST['scope']) . "'," . (int)$_POST['ref_id'] . ",'" . $e($_POST['notes']) . "','" . $e($f) . "')");
+        $q("INSERT INTO report_notes (scope,ref_id,item_id,notes,file_name) VALUES ('" . $e($_POST['scope']) . "'," . (int)$_POST['ref_id'] . "," . ((int)$_POST['item_id'] ?: 'NULL') . ",'" . $e($_POST['notes']) . "','" . $e($f) . "')");
+    }
+    if ($a === 'upd_note') {
+        $id = (int)$_POST['id']; $set = "notes='" . $e($_POST['notes']) . "'";
+        $f = saveUpload('file');
+        if ($f !== '') {
+            $old = mysqli_fetch_assoc($q("SELECT file_name FROM report_notes WHERE id=$id"));
+            if (!empty($old['file_name'])) @unlink('../uploads/notes/' . basename($old['file_name']));
+            $set .= ", file_name='" . $e($f) . "'";
+        }
+        $q("UPDATE report_notes SET $set WHERE id=$id");
+    }
+    if ($a === 'del_note') {
+        $id = (int)$_POST['id'];
+        $old = mysqli_fetch_assoc($q("SELECT file_name FROM report_notes WHERE id=$id"));
+        if (!empty($old['file_name'])) @unlink('../uploads/notes/' . basename($old['file_name']));
+        $q("DELETE FROM report_notes WHERE id=$id");
     }
     exit(json_encode(['ok' => true]));
 }
@@ -119,7 +144,7 @@ if (isset($_GET['export'])) {
     $sh->getStyle("A1:{$lastCol}1")->getFill()->setFillType('solid')->getStartColor()->setRGB('6EE7F9');
     foreach (['A' => 6, 'B' => 24, 'C' => 16, 'D' => 55] as $c => $w) $sh->getColumnDimension($c)->setWidth($w);
     foreach ($rows as $i => $r) {
-        $row = $i + 2; $sh->setCellValue("A$row", $i + 1); $sh->setCellValue("B$row", $r[0]); $sh->setCellValue("D$row", $r[1]);
+        $row = $i + 2; $sh->setCellValue("A$row", $i + 1); $sh->setCellValue("B$row", clean($r[0])); $sh->setCellValue("D$row", clean($r[1]));
         foreach ($r[3] as $k => $v) $sh->setCellValue(chr(69 + $k) . $row, $v);
         $sh->getRowDimension($row)->setRowHeight(60);
         if ($p = imgFs($r[2])) { $d = new Drawing(); $d->setPath($p); $d->setCoordinates("C$row"); $d->setHeight(75); $d->setOffsetX(5); $d->setOffsetY(3); $d->setWorksheet($sh); }
@@ -143,7 +168,7 @@ function pager($p, $pages, $base) {
 $p = max(1, (int)($_GET['p'] ?? 1));
 $jobs_all = []; $jr = $q("SELECT id, job_no FROM jobs ORDER BY id DESC");
 while ($jr && $r = mysqli_fetch_assoc($jr)) $jobs_all[] = $r;
-$st = mysqli_fetch_assoc($q("SELECT COUNT(*) t, SUM(stock_qty=0) o, SUM(stock_qty>0 AND stock_qty<=5) l FROM items"));
+$st = mysqli_fetch_assoc($q("SELECT COUNT(*) t, SUM(stock_qty=0) o, SUM(stock_qty>0 AND stock_qty<=min_qty) l FROM items"));
 $jt = mysqli_fetch_assoc($q("SELECT COUNT(*) t FROM jobs"));
 $tab = fn($v, $l) => "<a class='nav-link " . ($view === $v ? 'active' : '') . "' href='?view=$v'>$l</a>";
 ?>
@@ -167,7 +192,8 @@ body{background:#eef2f7;font-family:'Segoe UI',sans-serif}
 @media(max-width:768px){.sidebar{display:none}.main{margin-left:0;padding:10px}}
 /* ===== HUB ===== */
 .panel{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:16px}
-.stat{border-radius:12px;padding:14px 18px;color:#fff;font-weight:600}.stat b{display:block;font-size:26px}
+.stat{border-radius:12px;padding:14px 18px;color:#fff;height:100%;display:flex;flex-direction:column;justify-content:center}
+.stat-n{font-size:28px;font-weight:700;line-height:1.1}.stat-l{font-size:14px;font-weight:600;opacity:.95}
 .folder{display:block;background:#fff;border-radius:12px;padding:18px;text-decoration:none;color:#1e293b;border:1px solid #e2e8f0;transition:.15s;height:100%}
 .folder:hover{border-color:#f97316;transform:translateY(-2px)}.folder i{font-size:34px;color:#f59e0b}
 .xl{border-collapse:collapse;width:100%;background:#fff;font-size:13px}
@@ -183,6 +209,10 @@ body{background:#eef2f7;font-family:'Segoe UI',sans-serif}
 .ac div{display:flex;gap:10px;align-items:center;padding:6px 10px;cursor:pointer;font-size:13px}.ac div:hover{background:#fff7ed}
 .ac img{width:38px;height:38px;object-fit:contain}
 .nav-pills .nav-link{color:#334155;font-weight:600}.nav-link.active{background:#f97316!important;color:#fff!important}
+.note-row{display:flex;gap:12px;align-items:flex-start;padding:10px;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:8px;background:#fff}
+.note-file img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid #cbd5e1}
+.note-ico{width:84px;height:84px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f1f5f9;border-radius:8px;font-size:26px;color:#475569;text-decoration:none}
+.note-ico small{font-size:11px;font-weight:700}
 </style></head><body>
 
 <div class="sidebar">
@@ -210,10 +240,10 @@ body{background:#eef2f7;font-family:'Segoe UI',sans-serif}
   <nav class="nav nav-pills"><?= $tab('job', '📁 Job Folders') . $tab('store', '🏢 Tieman Store') . $tab('in', '📈 Stock In') . $tab('out', '📉 Stock Out') ?></nav>
 </div>
 <div class="row g-3 mb-3">
-  <div class="col-6 col-md-3"><div class="stat" style="background:#3b82f6"><b><?= (int)$st['t'] ?></b>Total items</div></div>
-  <div class="col-6 col-md-3"><div class="stat" style="background:#f97316"><b><?= (int)$jt['t'] ?></b>Job folders</div></div>
-  <div class="col-6 col-md-3"><div class="stat" style="background:#eab308"><b><?= (int)$st['l'] ?></b>Low stock (≤5)</div></div>
-  <div class="col-6 col-md-3"><div class="stat" style="background:#ef4444"><b><?= (int)$st['o'] ?></b>Out of stock</div></div>
+  <div class="col-6 col-md-3"><div class="stat" style="background:#3b82f6"><div class="stat-n"><?= (int)$st['t'] ?></div><div class="stat-l">Total items</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat" style="background:#f97316"><div class="stat-n"><?= (int)$jt['t'] ?></div><div class="stat-l">Job folders</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat" style="background:#eab308"><div class="stat-n"><?= (int)$st['l'] ?></div><div class="stat-l">Low stock</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat" style="background:#ef4444"><div class="stat-n"><?= (int)$st['o'] ?></div><div class="stat-l">Out of stock</div></div></div>
 </div>
 
 <?php if ($view === 'job'): ?>
@@ -293,7 +323,7 @@ body{background:#eef2f7;font-family:'Segoe UI',sans-serif}
       </div>
     </div>
     <div class="table-responsive"><table class="xl">
-      <thead><tr><th>NO</th><th>PART NO.</th><th>IMAGE</th><th>DESCRIPTION</th><th>IN</th><th>OUT</th><th>BALANCE</th>
+      <thead><tr><th>NO</th><th>PART NO.</th><th>IMAGE</th><th>DESCRIPTION</th><th>IN</th><th>OUT</th><th>BALANCE</th><th title="Warning level for this item - adjust per item">MIN</th>
         <th><input type="checkbox" class="form-check-input" onclick="document.querySelectorAll('.sel').forEach(c=>c.checked=this.checked)"></th></tr></thead><tbody>
       <?php $n = ($p - 1) * $per; while ($rows && $r = mysqli_fetch_assoc($rows)): $n++; $id = $r['id']; ?>
         <tr><td><b><?= $n ?></b></td>
@@ -301,10 +331,11 @@ body{background:#eef2f7;font-family:'Segoe UI',sans-serif}
         <td><img class="thumb" loading="lazy" src="<?= h(img($r['image'])) ?>" onerror="this.onerror=null;this.src=PH"></td>
         <td class="desc"><input class="cell" style="text-align:left" id="n<?= $id ?>" value="<?= h($r['item_name']) ?>" onchange="saveItem(<?= $id ?>)"></td>
         <td class="text-success fw-bold">+<?= (int)$r['tin'] ?></td><td class="text-danger fw-bold">−<?= (int)$r['tout'] ?></td>
-        <td><input class="cell fw-bold <?= $r['stock_qty'] <= 5 ? 'low' : '' ?>" type="number" id="q<?= $id ?>" value="<?= (int)$r['stock_qty'] ?>" onchange="saveItem(<?= $id ?>)"></td>
+        <td><input class="cell fw-bold <?= $r['stock_qty'] <= $r['min_qty'] ? 'low' : '' ?>" type="number" id="q<?= $id ?>" value="<?= (int)$r['stock_qty'] ?>" onchange="saveItem(<?= $id ?>)"></td>
+        <td><input class="cell" type="number" min="0" id="m<?= $id ?>" value="<?= (int)$r['min_qty'] ?>" onchange="saveItem(<?= $id ?>)"></td>
         <td><input type="checkbox" class="sel form-check-input" value="<?= $id ?>">
             <button class="btn btn-sm text-danger" onclick="delOne('del_item',{},<?= $id ?>)"><i class="fa-solid fa-trash"></i></button></td></tr>
-      <?php endwhile; if (!$total) echo "<tr><td colspan='8' class='text-muted py-4'>No items found.</td></tr>"; ?></tbody></table></div>
+      <?php endwhile; if (!$total) echo "<tr><td colspan='9' class='text-muted py-4'>No items found.</td></tr>"; ?></tbody></table></div>
     <?= pager($p, $pages, '?view=store&cat=' . urlencode($cat === '' ? '*' : $cat) . '&sq=' . urlencode($sq)) ?>
   </div>
   <?php $scope = 'store'; $ref = 0; ?>
@@ -334,21 +365,53 @@ body{background:#eef2f7;font-family:'Segoe UI',sans-serif}
 <?php endif; ?>
 
 <?php if ($view !== 'job' || $job_id):
-  $nr = $q("SELECT * FROM report_notes WHERE scope='" . $e($scope) . "' AND ref_id=" . (int)$ref . " ORDER BY id DESC LIMIT 20"); ?>
+  $nr = $q("SELECT n.*, i.item_code, i.item_name, i.image AS item_image FROM report_notes n LEFT JOIN items i ON i.id=n.item_id WHERE n.scope='" . $e($scope) . "' AND n.ref_id=" . (int)$ref . " ORDER BY n.id DESC LIMIT 100"); ?>
   <div class="panel">
     <h6 class="fw-bold">📝 Notes &amp; Files</h6>
-    <textarea id="nt" class="form-control mb-2" rows="3" placeholder="Write notes..."></textarea>
-    <div class="d-flex flex-wrap gap-2 mb-2">
+    <div class="input-group position-relative mb-2"><span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+      <input id="ns" class="form-control" placeholder="Search an item to attach to this note (optional)..." autocomplete="off"><div class="ac" id="nacb"></div>
+      <button class="btn btn-outline-secondary" type="button" onclick="noteItem=null;ns.value='';document.getElementById('npicked').innerHTML=''">✕</button></div>
+    <div id="npicked" class="mb-2 small"></div>
+    <textarea id="nt" class="form-control mb-2" rows="3" placeholder="Write a note..."></textarea>
+    <div class="d-flex flex-wrap gap-2 mb-3">
       <input type="file" id="nf" class="form-control" style="max-width:320px" accept="image/*,.pdf,.xls,.xlsx,.doc,.docx">
       <label class="btn btn-outline-dark mb-0"><i class="fa-solid fa-camera"></i> Camera
         <input type="file" accept="image/*" capture="environment" hidden onchange="document.getElementById('nf').files=this.files"></label>
-      <button class="btn btn-success" onclick="saveNote('<?= $scope ?>',<?= (int)$ref ?>)">💾 Save</button>
+      <button class="btn btn-success" onclick="saveNote('<?= $scope ?>',<?= (int)$ref ?>)"><i class="fa-solid fa-plus"></i> Add Note</button>
     </div>
-    <?php while ($nr && $r = mysqli_fetch_assoc($nr)): ?>
-      <div class="border rounded p-2 mt-2 small"><span class="text-muted"><?= date('d M Y H:i', strtotime($r['created_at'])) ?></span>
-      <div style="white-space:pre-wrap"><?= h($r['notes']) ?></div>
-      <?php if ($r['file_name']): ?><a target="_blank" href="../uploads/notes/<?= rawurlencode($r['file_name']) ?>">📎 <?= h($r['file_name']) ?></a><?php endif; ?></div>
-    <?php endwhile; ?>
+    <?php $cnt = 0; while ($nr && $r = mysqli_fetch_assoc($nr)): $cnt++; $nid = (int)$r['id'];
+        $fn = (string)$r['file_name']; $ext = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
+        $url = '../uploads/notes/' . rawurlencode($fn); $isImg = in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp']);
+        $ico = $ext === 'pdf' ? 'fa-file-pdf' : (in_array($ext, ['xls', 'xlsx']) ? 'fa-file-excel' : (in_array($ext, ['doc', 'docx']) ? 'fa-file-word' : 'fa-file')); ?>
+      <div class="note-row">
+        <?php if ($fn): ?><div class="note-file">
+          <?php if ($isImg): ?><a href="<?= $url ?>" target="_blank"><img src="<?= $url ?>" loading="lazy" onerror="this.onerror=null;this.src=PH"></a>
+          <?php else: ?><a class="note-ico" href="<?= $url ?>" target="_blank"><i class="fa-solid <?= $ico ?>"></i><small><?= strtoupper(h($ext)) ?></small></a><?php endif; ?>
+        </div><?php endif; ?>
+        <div class="flex-grow-1">
+          <?php if (!empty($r['item_code'])): ?><div class="d-flex align-items-center gap-2 mb-1">
+            <img src="<?= h(img($r['item_image'])) ?>" style="width:38px;height:38px;object-fit:contain;border:1px solid #e2e8f0;border-radius:6px;background:#fff" onerror="this.onerror=null;this.src=PH">
+            <span class="small"><b><?= h($r['item_code']) ?></b> — <?= h($r['item_name']) ?></span></div><?php endif; ?>
+          <div class="small text-muted mb-1"><i class="fa-regular fa-clock"></i> <?= date('d M Y, H:i', strtotime($r['created_at'])) ?></div>
+          <div id="nview-<?= $nid ?>" style="white-space:pre-wrap"><?= h($r['notes']) ?></div>
+          <?php if ($fn): ?><a class="small" target="_blank" href="<?= $url ?>">📎 Open file</a><?php endif; ?>
+          <div id="nedit-<?= $nid ?>" style="display:none" class="mt-1">
+            <textarea id="net-<?= $nid ?>" class="form-control mb-2" rows="3"><?= h($r['notes']) ?></textarea>
+            <div class="d-flex flex-wrap gap-2">
+              <input type="file" id="nef-<?= $nid ?>" class="form-control form-control-sm" style="max-width:260px" accept="image/*,.pdf,.xls,.xlsx,.doc,.docx" title="Replace file (optional)">
+              <label class="btn btn-sm btn-outline-dark mb-0"><i class="fa-solid fa-camera"></i>
+                <input type="file" accept="image/*" capture="environment" hidden onchange="document.getElementById('nef-<?= $nid ?>').files=this.files"></label>
+              <button class="btn btn-sm btn-success" onclick="saveEdit(<?= $nid ?>)">Save</button>
+              <button class="btn btn-sm btn-light" onclick="toggleEdit(<?= $nid ?>)">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex gap-1">
+          <button class="btn btn-sm btn-outline-primary" title="Edit" onclick="toggleEdit(<?= $nid ?>)"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="delNote(<?= $nid ?>)"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>
+    <?php endwhile; if (!$cnt) echo "<p class='text-muted small mb-0'>No notes yet.</p>"; ?>
   </div>
 <?php endif; ?>
 </div>
@@ -362,47 +425,62 @@ function post(a, d, files) {
   if (files) for (const k in files) fd.append(k, files[k]);
   return fetch(SELF, {method: 'POST', body: fd}).then(r => r.json());
 }
-const gc = id => document.getElementById('c' + id), gn = id => document.getElementById('n' + id), gq = id => document.getElementById('q' + id);
-function saveItem(id) { post('upd_item', {id, item_code: gc(id).value, item_name: gn(id).value, stock_qty: gq(id).value}); }
+const gc = id => document.getElementById('c' + id), gn = id => document.getElementById('n' + id), gq = id => document.getElementById('q' + id), gm = id => document.getElementById('m' + id);
+function saveItem(id) { post('upd_item', {id, item_code: gc(id).value, item_name: gn(id).value, stock_qty: gq(id).value, min_qty: gm(id) ? gm(id).value : 5}); }
 function delOne(a, extra, id) { if (confirm('Delete this row?')) post(a, {...extra, ids: id}).then(() => location.reload()); }
 function delSel(a, extra) {
   const ids = [...document.querySelectorAll('.sel:checked')].map(x => x.value);
   if (!ids.length) return alert('Tick at least one row first.');
   if (confirm('Delete ' + ids.length + ' row(s)?')) post(a, {...extra, ids: ids.join(',')}).then(() => location.reload());
 }
+function toggleEdit(id) {
+  const b = document.getElementById('nedit-' + id), v = document.getElementById('nview-' + id), show = b.style.display === 'none';
+  b.style.display = show ? 'block' : 'none'; v.style.display = show ? 'none' : 'block';
+}
+function saveEdit(id) {
+  const f = document.getElementById('nef-' + id).files[0];
+  post('upd_note', {id, notes: document.getElementById('net-' + id).value}, f ? {file: f} : null).then(() => location.reload());
+}
+function delNote(id) { if (confirm('Delete this note and its file?')) post('del_note', {id}).then(() => location.reload()); }
 function saveNote(scope, ref) {
   const f = document.getElementById('nf').files[0];
-  post('save_note', {scope, ref_id: ref, notes: document.getElementById('nt').value}, f ? {file: f} : null).then(() => location.reload());
+  if (!document.getElementById('nt').value.trim() && !f) return alert('Write a note or choose a file first.');
+  post('save_note', {scope, ref_id: ref, item_id: noteItem ? noteItem.id : 0, notes: document.getElementById('nt').value}, f ? {file: f} : null).then(() => location.reload());
 }
 function doMove(dir) {
   if (!picked) return alert('Pick an item from the search list first.');
   post('move', {item_id: picked.id, direction: dir, source: msrc.value, job_id: mjob.value, qty: mq.value, note: mnote.value}).then(() => location.reload());
 }
-const s = document.getElementById('s'), box = document.getElementById('acb');
-let results = [], timer;
-if (s) {
-  s.addEventListener('input', () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      const v = s.value.trim();
-      if (!v) { box.style.display = 'none'; return; }
+let noteItem = null;
+const s = document.getElementById('s'), box = document.getElementById('acb'), ns = document.getElementById('ns'), nbox = document.getElementById('nacb');
+function bindAC(inp, bx, onPick) {
+  if (!inp) return; let res = [], t;
+  inp.addEventListener('input', () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const v = inp.value.trim();
+      if (!v) { bx.style.display = 'none'; return; }
       fetch(SELF + '?a=search&q=' + encodeURIComponent(v)).then(r => r.json()).then(list => {
-        results = list; box.innerHTML = '';
-        if (!list.length) box.innerHTML = '<div class="text-muted">No matching items</div>';
+        res = list; bx.innerHTML = '';
+        if (!list.length) bx.innerHTML = '<div class="text-muted">No matching items</div>';
         list.forEach(it => {
           const d = document.createElement('div');
           d.innerHTML = `<img src="${it.img}" onerror="this.onerror=null;this.src=PH"><span><b>${it.item_code}</b> — ${it.item_name} <small class="text-muted">(stock ${it.stock_qty})</small></span>`;
-          d.onclick = () => pick(it); box.appendChild(d);
+          d.onclick = () => { bx.style.display = 'none'; onPick(it); }; bx.appendChild(d);
         });
-        box.style.display = 'block';
-      }).catch(() => { box.innerHTML = '<div class="text-danger">Search failed</div>'; box.style.display = 'block'; });
+        bx.style.display = 'block';
+      }).catch(() => { bx.innerHTML = '<div class="text-danger">Search failed</div>'; bx.style.display = 'block'; });
     }, 200);
   });
-  s.addEventListener('keydown', ev => { if (ev.key === 'Enter' && results.length) { ev.preventDefault(); pick(results[0]); } });
-  document.addEventListener('click', ev => { if (!box.contains(ev.target) && ev.target !== s) box.style.display = 'none'; });
+  inp.addEventListener('keydown', ev => { if (ev.key === 'Enter' && res.length) { ev.preventDefault(); bx.style.display = 'none'; onPick(res[0]); } });
+  document.addEventListener('click', ev => { if (!bx.contains(ev.target) && ev.target !== inp) bx.style.display = 'none'; });
 }
+bindAC(s, box, it => pick(it));
+bindAC(ns, nbox, it => {
+  noteItem = it; ns.value = it.item_code;
+  document.getElementById('npicked').innerHTML = `<img src="${it.img}" style="width:34px;height:34px;object-fit:contain" onerror="this.onerror=null;this.src=PH"> <b>${it.item_code}</b> — ${it.item_name}`;
+});
 function pick(it) {
-  box.style.display = 'none';
   if (VIEW === 'job') post('add_job_item', {job_id: JOB, item_id: it.id, qty: document.getElementById('addq').value}).then(() => location.reload());
   else { picked = it; s.value = it.item_code; document.getElementById('picked').innerHTML = 'Selected: <b>' + it.item_code + '</b> — ' + it.item_name + ' (current stock ' + it.stock_qty + ')'; }
 }
