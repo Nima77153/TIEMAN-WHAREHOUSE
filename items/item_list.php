@@ -231,6 +231,11 @@ $search_param = "%".$search."%";
 $category_filter = isset($_GET['category_filter']) ? trim($_GET['category_filter']) : "";
 $sort_option = isset($_GET['sort_by']) ? trim($_GET['sort_by']) : "first_last";
 
+// Current search / category / sort, handed to edit_item.php so it can return to this exact list
+$keep_query_params = $_GET;
+unset($keep_query_params['focus']);
+$return_query_string = http_build_query($keep_query_params);
+
 switch ($sort_option) {
     case 'a_z': $order_query = "ORDER BY item_name ASC, description ASC"; break;
     case '1_z': $order_query = "ORDER BY LENGTH(item_code) ASC, item_code ASC"; break;
@@ -371,6 +376,10 @@ $result = $stmt->get_result();
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
             padding: 12px;
         }
+
+        /* Briefly highlights the row you just edited when you come back to the list */
+        @keyframes rowFlash { 0%, 60% { background-color: #fef08a; } 100% { background-color: transparent; } }
+        tr.row-flash > td { animation: rowFlash 2.5s ease-out; }
     </style>
 </head>
 <body>
@@ -482,7 +491,7 @@ $result = $stmt->get_result();
                     </div>
 
                     <div class="col-md-3 d-flex gap-2">
-                        <button type="button" onclick="executeCatalogSearch()" class="btn btn-primary px-3 w-100">Search</button>
+                        <button type="button" id="searchBtn" onclick="executeCatalogSearch()" class="btn btn-primary px-3 w-100">Search</button>
                         <?php if(!empty($search) || !empty($category_filter) || $sort_option !== 'first_last'): ?>
                             <a href="item_list.php" class="btn btn-secondary px-3">Clear</a>
                         <?php endif; ?>
@@ -527,7 +536,7 @@ $result = $stmt->get_result();
                                         }
                                     }
                                 ?>
-                                <tr>
+                                <tr id="item-<?= $row['id'] ?>">
                                     <td class="text-center">
                                    <input type="checkbox"
        name="selected_items[]"
@@ -538,10 +547,10 @@ $result = $stmt->get_result();
                                     </td>
                                     <td class="text-center">
                                         <div class="img-zoom-container">
-                                            <img src="<?= htmlspecialchars($image_src) ?>" class="zoomable-thumbnail" alt="Item"
+                                            <img src="<?= htmlspecialchars($image_src) ?>" class="zoomable-thumbnail" alt="Item" loading="lazy"
                                                  onerror="this.onerror=null; this.src='/assets/images/no-image.png';">
                                             <div class="zoom-popup-view">
-                                                <img src="<?= htmlspecialchars($image_src) ?>" alt="Full Asset Display View"
+                                                <img src="<?= htmlspecialchars($image_src) ?>" alt="Full Asset Display View" loading="lazy"
                                                      onerror="this.onerror=null; this.src='/assets/images/no-image.png';">
                                             </div>
                                         </div>
@@ -567,7 +576,7 @@ $result = $stmt->get_result();
                                     <td>
                                         <div class="btn-group btn-group-sm" role="group">
                                             <a href="view_item.php?id=<?= $row['id'] ?>" class="btn btn-primary" onclick="saveScrollPosition()">View</a>
-                                            <a href="edit_item.php?id=<?= $row['id'] ?>" class="btn btn-success" onclick="saveScrollPosition()">Edit</a>
+                                            <a href="edit_item.php?id=<?= $row['id'] ?>&return=<?= urlencode($return_query_string) ?>" class="btn btn-success" onclick="saveScrollPosition()">Edit</a>
                                             <a href="delete_item.php?id=<?= $row['id'] ?>" class="btn btn-danger" onclick="saveScrollPosition(); return confirm('Delete item?')">Delete</a>
                                             <a href="../barcode/print_barcode.php?code=<?= urlencode($row['item_code']) ?>" target="_blank" class="btn btn-dark">🏷️ Barcode</a>
                                         </div>
@@ -604,26 +613,52 @@ $result = $stmt->get_result();
         const scrollTopBtn = document.getElementById('scrollToTopBtn');
 
         // ==========================================
-        // KEEP PAGE POSITION: save scroll spot before leaving
-        // (Edit / View / Delete / Back / Update) and restore it
-        // when the page reloads, instead of jumping to the top.
+        // KEEP PAGE POSITION
+        // - After Edit / Update: the list comes back with ?focus=ID and scrolls
+        //   straight to that row (and flashes it), with the same search/category/sort.
+        // - View / Delete / browser Back: the saved scroll spot is restored, but ONLY
+        //   when the page URL is the same as when it was saved (so a new search or
+        //   a new category always starts at the top of its own results).
+        // - The restore happens right away and never fights the user: if you start
+        //   scrolling yourself, it stops (this was the "jumps back" problem).
         // ==========================================
         const SCROLL_STORAGE_KEY = 'catalogScrollPos';
+        let userMovedPage = false;
+
+        if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
+        ['wheel', 'touchstart', 'touchmove', 'keydown', 'mousedown'].forEach(function(evt) {
+            window.addEventListener(evt, function() { userMovedPage = true; }, { passive: true });
+        });
 
         function saveScrollPosition() {
-            sessionStorage.setItem(SCROLL_STORAGE_KEY, window.scrollY);
+            sessionStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify({ url: location.href, y: window.scrollY }));
         }
 
         // Catch any navigation away from this page (including browser Back)
         window.addEventListener('beforeunload', saveScrollPosition);
 
-        window.addEventListener('load', function() {
-            const savedScroll = sessionStorage.getItem(SCROLL_STORAGE_KEY);
-            if (savedScroll !== null) {
-                window.scrollTo(0, parseInt(savedScroll, 10));
-                sessionStorage.removeItem(SCROLL_STORAGE_KEY);
-            }
-        });
+        function scrollToEditedRow() {
+            const focusId = new URLSearchParams(location.search).get('focus');
+            if (!focusId) return false;
+            const row = document.getElementById('item-' + focusId);
+            if (!row) return false;
+            row.scrollIntoView({ block: 'center' });
+            if (!row.classList.contains('row-flash')) row.classList.add('row-flash');
+            return true;
+        }
+
+        function restoreScrollPosition() {
+            if (userMovedPage) return;
+            if (scrollToEditedRow()) return;
+            try {
+                const saved = JSON.parse(sessionStorage.getItem(SCROLL_STORAGE_KEY) || 'null');
+                if (saved && saved.url === location.href) window.scrollTo(0, saved.y);
+            } catch (e) {}
+        }
+
+        restoreScrollPosition();                      // right away, no waiting for images
+        window.addEventListener('load', restoreScrollPosition); // once more after layout settles (only if you haven't scrolled)
 
         masterCheckbox.addEventListener('change', function() {
             standardCheckboxes.forEach(box => box.checked = this.checked);
@@ -641,12 +676,31 @@ $result = $stmt->get_result();
         }
 
         function executeCatalogSearch() {
-            saveScrollPosition();
             const query = document.getElementById('ui_search').value;
             const category = document.getElementById('ui_category').value;
             const sort = document.getElementById('ui_sort').value;
+
+            // Show that something is happening (big lists can take a few seconds to load)
+            const searchBtn = document.getElementById('searchBtn');
+            searchBtn.disabled = true;
+            searchBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Loading...';
+            document.getElementById('inventoryTable').style.opacity = '0.4';
+
             window.location.href = `item_list.php?search=${encodeURIComponent(query)}&category_filter=${encodeURIComponent(category)}&sort_by=${encodeURIComponent(sort)}`;
         }
+
+        // Choosing any category applies it straight away (no need to press Search)
+        document.getElementById('ui_category').addEventListener('change', executeCatalogSearch);
+
+        // If the browser shows this page again from its back/forward cache, reset the Search button
+        window.addEventListener('pageshow', function(e) {
+            if (e.persisted) {
+                const searchBtn = document.getElementById('searchBtn');
+                searchBtn.disabled = false;
+                searchBtn.textContent = 'Search';
+                document.getElementById('inventoryTable').style.opacity = '1';
+            }
+        });
 
         // Allow pressing Enter inside the search box to trigger the same search
         document.getElementById('ui_search').addEventListener('keypress', function(e) {
