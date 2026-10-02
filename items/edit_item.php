@@ -21,6 +21,21 @@ if (!$item) {
     exit;
 }
 
+// ==========================================
+// REMEMBER WHERE THE USER CAME FROM
+// item_list.php sends its current search / category / sort in "return".
+// Only those three known values are accepted, then used to go back to
+// the same filtered list and the row that was just edited.
+// ==========================================
+parse_str($_GET['return'] ?? '', $return_params);
+$keep_params = [];
+foreach (['search', 'category_filter', 'sort_by'] as $allowed_key) {
+    if (isset($return_params[$allowed_key])) {
+        $keep_params[$allowed_key] = (string)$return_params[$allowed_key];
+    }
+}
+$back_to_list_url = 'item_list.php?' . http_build_query($keep_params + ['focus' => $id]);
+
 // Handle Form Update Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
     $item_code = mysqli_real_escape_string($conn, trim($_POST['item_code']));
@@ -68,7 +83,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
     $update_stmt->bind_param("sssssisssi", $item_code, $item_name, $description, $qty_per_tanker, $stock_date, $stock_qty, $location, $image_filename, $category, $id);
 
     if ($update_stmt->execute()) {
-        echo "<script>alert('✨ Inventory item layout updated successfully!'); window.location='item_list.php';</script>";
+        // Go back to the SAME filtered list, scrolled to the item that was just edited
+        echo "<script>alert('✨ Inventory item layout updated successfully!'); window.location=" . json_encode($back_to_list_url) . ";</script>";
         exit;
     } else {
         $error_message = "Database execution error transaction trace: " . $conn->error;
@@ -119,7 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
         <div class="card-box">
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h3><i class="bi bi-pencil-square text-warning me-2"></i>Edit Item Specifications</h3>
-                <a href="item_list.php" class="btn btn-secondary btn-sm"><i class="bi bi-arrow-left"></i> Back to Catalog List</a>
+                <a href="<?= htmlspecialchars($back_to_list_url) ?>" class="btn btn-secondary btn-sm"><i class="bi bi-arrow-left"></i> Back to Catalog List</a>
             </div>
 
             <?php if (isset($error_message)): ?>
@@ -217,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item'])) {
                         </div>
 
                         <div class="mt-5 pt-3 border-top d-flex gap-2 justify-content-end">
-                            <a href="item_list.php" class="btn btn-outline-secondary px-4">Cancel</a>
+                            <a href="<?= htmlspecialchars($back_to_list_url) ?>" class="btn btn-outline-secondary px-4">Cancel</a>
                             <button type="submit" name="update_item" class="btn btn-warning px-4 fw-bold">Update Item Changes</button>
                         </div>
                     </div>
