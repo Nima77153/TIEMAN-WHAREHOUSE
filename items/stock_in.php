@@ -1,9 +1,9 @@
 <?php
-// items/stock_out.php
+// items/stock_in.php
 // Self-contained page (no other file needed).
 // Follows the job boxes made in job_list.php (job -> box -> items). Add several items to the book list,
 // then book them all at once. Store quantity and the job report update automatically.
-$MODE = 'out';
+$MODE = 'in';
 session_start();
 include('../config/db.php');
 date_default_timezone_set('Asia/Kuala_Lumpur');
@@ -235,7 +235,7 @@ $scopeName = $jobRow ? ('Job ' . clean($jobRow['job_no']) . ($box > 0 && isset($
             <a href="../import_excel.php"><i class="fa-solid fa-file-import"></i> Import Excel</a>
             <a href="../create_job.php"><i class="fa-solid fa-file-circle-plus"></i> Create Job</a>
             <a href="../job_list.php"><i class="fa-solid fa-file-lines"></i> Job List</a>
-            <a href="../stock/stock_in.php"<?= !$IS_OUT ? ' class="active"' : '' ?>><i class="fa-solid fa-arrow-trend-up"></i> Stock In</a>
+            <a href="../items/stock_in.php"<?= !$IS_OUT ? ' class="active"' : '' ?>><i class="fa-solid fa-arrow-trend-up"></i> Stock In</a>
             <a href="../items/stock_out.php"<?= $IS_OUT ? ' class="active"' : '' ?>><i class="fa-solid fa-arrow-trend-down"></i> Stock Out</a>
             <a href="../return_item.php"><i class="fa-solid fa-rotate-left"></i> Returns</a>
             <a href="../stock/missing_item.php"><i class="fa-solid fa-triangle-exclamation"></i> Missing</a>
