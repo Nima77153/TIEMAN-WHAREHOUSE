@@ -1,8 +1,8 @@
 <?php
 // items/stock_out.php
 // Self-contained page (no other file needed).
-// Every job has its own "box". Stock Out puts items into a job's box; Stock In either receives
-// new stock into the store, or returns items out of a job's box back to the store.
+// Follows the job boxes made in job_list.php (job -> box -> items). Add several items to the book list,
+// then book them all at once. Store quantity and the job report update automatically.
 $MODE = 'out';
 session_start();
 include('../config/db.php');
@@ -13,8 +13,7 @@ $SELF   = basename($_SERVER['PHP_SELF']);
 
 function clean($s) { return trim(str_replace('\\', '', (string)$s)); }
 function h($s) { return htmlspecialchars(clean($s), ENT_QUOTES); }
-// Same image lookup idea as item_list.php (Cloudinary URL, or file named by part no / image column)
-function itemImage($image_file, $item_code = '') {
+function itemImage($image_file, $item_code = '') {   // same lookup idea as item_list.php
     $image_file = trim((string)$image_file);
     if ($image_file !== '' && preg_match('~^https?://~i', $image_file)) return $image_file;
     $root = rtrim($_SERVER['DOCUMENT_ROOT'], '/');
@@ -30,10 +29,11 @@ function itemImage($image_file, $item_code = '') {
     return '';
 }
 
-// movement ledger (shared with the report page); a job's box = its movements
+// movement ledger shared with the report page
 mysqli_query($conn, "CREATE TABLE IF NOT EXISTS stock_moves (id INT AUTO_INCREMENT PRIMARY KEY, item_id INT NOT NULL, direction VARCHAR(3) NOT NULL,
     source VARCHAR(5) NOT NULL, job_id INT NULL, qty INT NOT NULL, note TEXT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
-const BOX_SUM = "COALESCE(SUM(CASE WHEN m.direction='out' THEN m.qty ELSE -m.qty END),0)";
+if (!mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM stock_moves LIKE 'box_id'"))) mysqli_query($conn, "ALTER TABLE stock_moves ADD box_id INT NULL");
+const SENT_SQL = "COALESCE(SUM(CASE WHEN m.direction='out' THEN m.qty ELSE -m.qty END),0)";   // net pieces sent to a job
 
 // ---------- live search (every letter) ----------
 if (($_GET['a'] ?? '') === 'search') {
@@ -41,102 +41,156 @@ if (($_GET['a'] ?? '') === 'search') {
     $q = trim($_GET['q'] ?? ''); $job = (int)($_GET['job'] ?? 0); $out = [];
     if ($q !== '') {
         $like = '%' . $q . '%';
-        $st = mysqli_prepare($conn, "SELECT i.id,i.item_code,i.item_name,i.barcode,i.stock_qty,i.image,
-              (SELECT " . BOX_SUM . " FROM stock_moves m WHERE m.item_id=i.id AND m.job_id=?) AS box_qty
+        $st = mysqli_prepare($conn, "SELECT i.id,i.item_code,i.item_name,i.image,i.stock_qty,
+              (SELECT " . SENT_SQL . " FROM stock_moves m WHERE m.item_id=i.id AND m.job_id=?) AS sent
             FROM items i WHERE i.item_code LIKE ? OR i.item_name LIKE ? OR i.barcode LIKE ?
             ORDER BY (i.item_code=? OR i.barcode=?) DESC, i.item_code LIMIT 10");
         mysqli_stmt_bind_param($st, 'isssss', $job, $like, $like, $like, $q, $q);
         mysqli_stmt_execute($st);
         $r = mysqli_stmt_get_result($st);
         while ($r && $x = mysqli_fetch_assoc($r)) {
-            $out[] = ['id' => (int)$x['id'], 'item_code' => clean($x['item_code']), 'item_name' => clean($x['item_name']), 'barcode' => clean($x['barcode']),
-                      'stock_qty' => (int)$x['stock_qty'], 'box_qty' => (int)$x['box_qty'], 'img' => itemImage($x['image'], $x['item_code'])];
+            $out[] = ['id' => (int)$x['id'], 'item_code' => clean($x['item_code']), 'item_name' => clean($x['item_name']),
+                      'stock_qty' => (int)$x['stock_qty'], 'sent' => (int)$x['sent'], 'img' => itemImage($x['image'], $x['item_code'])];
         }
     }
     exit(json_encode($out));
 }
 
-// ---------- book the movement ----------
-if (isset($_POST['book'])) {
-    $code = trim($_POST['item_identifier'] ?? '');
-    $n    = (int)($_POST['qty'] ?? 0);
-    $job  = max(0, (int)($_POST['job_id'] ?? 0));
+// ---------- scope: which job / box ----------
+$job = max(0, (int)($_GET['job'] ?? 0));
+$box = isset($_GET['box']) ? (int)$_GET['box'] : -1;      // -1 = all items, 0 = items without a box, >0 = that box
+$jobRow = null;
+if ($job > 0) { $r = mysqli_query($conn, "SELECT id,job_no,customer_name,status FROM jobs WHERE id=$job"); $jobRow = $r ? mysqli_fetch_assoc($r) : null; if (!$jobRow) { $job = 0; $box = -1; } }
+$dirSql   = $IS_OUT ? 'out' : 'in';
+$scopeSql = $job > 0 ? "m.job_id=$job" . ($box > 0 ? " AND m.box_id=$box" : '') : "m.job_id IS NULL";
+
+// ---------- export the bookings as an Excel file ----------
+if (isset($_GET['export'])) {
+    $res = mysqli_query($conn, "SELECT m.created_at,m.qty,m.note,i.item_code,i.item_name,i.image,j.job_no,j.customer_name,b.box_name
+        FROM stock_moves m JOIN items i ON i.id=m.item_id LEFT JOIN jobs j ON j.id=m.job_id LEFT JOIN job_boxes b ON b.id=m.box_id
+        WHERE m.direction='$dirSql' AND $scopeSql ORDER BY m.id DESC");
+    $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
+    $domain = $proto . $_SERVER['HTTP_HOST'];
+    $fname = ($IS_OUT ? 'Stock_Out_' : 'Stock_In_') . ($jobRow ? preg_replace('/[^A-Za-z0-9_\-]/', '_', $jobRow['job_no']) : 'Store') . '_' . date('Ymd_His') . '.xls';
+    header('Content-Type: application/vnd.ms-excel; charset=utf-8');
+    header('Content-Disposition: attachment; filename=' . $fname);
+    header('Pragma: public');
+    echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta http-equiv="content-type" content="text/html; charset=UTF-8"></head><body>';
+    echo '<h3>' . ($IS_OUT ? 'Stock Out' : 'Stock In') . ' - ' . h($jobRow ? 'Job ' . $jobRow['job_no'] . ' ' . $jobRow['customer_name'] : ($IS_OUT ? 'Store use' : 'New stock')) . '</h3>';
+    echo '<table border="1"><thead><tr style="background-color:#2e7d32;color:#ffffff;font-weight:bold;text-align:center;height:30px;">';
+    foreach (['DATE / TIME', 'JOB', 'BOX', 'IMAGE', 'PART NO', 'DESCRIPTION', 'QTY', 'NOTE'] as $c) echo "<th>$c</th>";
+    echo '</tr></thead><tbody>';
+    while ($res && $r = mysqli_fetch_assoc($res)) {
+        $im = itemImage($r['image'], $r['item_code']);
+        if ($im !== '' && !preg_match('~^https?://~i', $im)) $im = $domain . $im;
+        echo '<tr style="height:60px;vertical-align:middle;"><td>' . date('d M Y H:i', strtotime($r['created_at'])) . '</td><td>' . h($r['job_no'] ?? '-') . '</td><td>' . h($r['box_name'] ?? '-') . '</td>';
+        echo $im !== '' ? '<td align="center" style="width:70px;"><img src="' . h($im) . '" width="55" height="55"></td>' : '<td align="center">NO IMAGE</td>';
+        echo '<td style="font-weight:bold;vnd.ms-excel.numberformat:@;">' . h($r['item_code']) . '</td><td>' . h($r['item_name']) . '</td><td align="center" style="font-weight:bold;">' . (int)$r['qty'] . '</td><td>' . h($r['note']) . '</td></tr>';
+    }
+    echo '</tbody></table></body></html>';
+    exit;
+}
+
+// ---------- book everything in the list ----------
+if (isset($_POST['book_all'])) {
+    $pjob = max(0, (int)($_POST['job_id'] ?? 0));
+    $pbox = (int)($_POST['box_id'] ?? 0);
     $note = trim($_POST['note'] ?? '');
-    $flash = ['warning', 'Pick an item and enter a quantity first.'];
+    $cart = json_decode($_POST['cart_json'] ?? '[]', true);
+    $lines = [];
+    if (is_array($cart)) foreach ($cart as $c) { $id = (int)($c['id'] ?? 0); $n = (int)($c['qty'] ?? 0); if ($id > 0 && $n > 0) $lines[$id] = ($lines[$id] ?? 0) + $n; }
 
-    if ($code !== '' && $n > 0) {
-        $st = mysqli_prepare($conn, "SELECT id,item_code,stock_qty FROM items WHERE item_code=? OR barcode=? LIMIT 1");
-        mysqli_stmt_bind_param($st, 'ss', $code, $code);
-        mysqli_stmt_execute($st);
-        $res = mysqli_stmt_get_result($st);
-        $item = $res ? mysqli_fetch_assoc($res) : null;
+    if (!$lines) {
+        $flash = ['warning', 'The book list is empty. Add at least one item first.'];
+    } else {
+        try {
+            mysqli_begin_transaction($conn);
+            $total = 0;
+            foreach ($lines as $id => $n) {
+                $st = mysqli_prepare($conn, "SELECT id,item_code,stock_qty FROM items WHERE id=? FOR UPDATE");
+                mysqli_stmt_bind_param($st, 'i', $id); mysqli_stmt_execute($st);
+                $item = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+                if (!$item) throw new RuntimeException('An item in the list was not found.');
+                $code = h($item['item_code']);
 
-        if (!$item) {
-            $flash = ['danger', 'Item <b>' . h($code) . '</b> not found.'];
-        } else {
-            $id = (int)$item['id']; $ok = false;
-            if ($IS_OUT) {
-                // atomic: only subtracts when enough stock is left, so it can never go negative
-                $up = mysqli_prepare($conn, "UPDATE items SET stock_qty = stock_qty - ? WHERE id = ? AND stock_qty >= ?");
-                mysqli_stmt_bind_param($up, 'iii', $n, $id, $n);
-                mysqli_stmt_execute($up);
-                $ok = mysqli_stmt_affected_rows($up) > 0;
-                if (!$ok) $flash = ['danger', 'Not enough stock. Only <b>' . (int)$item['stock_qty'] . '</b> left for ' . h($item['item_code']) . '.'];
-            } else {
-                if ($job > 0) {   // returning from a box: cannot return more than the box holds
-                    $bq = mysqli_prepare($conn, "SELECT " . BOX_SUM . " AS b FROM stock_moves m WHERE m.item_id=? AND m.job_id=?");
-                    mysqli_stmt_bind_param($bq, 'ii', $id, $job); mysqli_stmt_execute($bq);
-                    $inbox = (int)(mysqli_fetch_assoc(mysqli_stmt_get_result($bq))['b'] ?? 0);
-                    if ($n > $inbox) $flash = ['danger', 'That box only holds <b>' . $inbox . '</b> of ' . h($item['item_code']) . '.'];
-                    else $ok = true;
-                } else $ok = true;
-                if ($ok) {
+                // which box does this item belong to in the job?
+                $mbox = 0; $inJob = false;
+                if ($pjob > 0) {
+                    $st = mysqli_prepare($conn, "SELECT box_id FROM job_items WHERE job_id=? AND item_id=? LIMIT 1");
+                    mysqli_stmt_bind_param($st, 'ii', $pjob, $id); mysqli_stmt_execute($st);
+                    $ji = mysqli_fetch_assoc(mysqli_stmt_get_result($st));
+                    if ($ji) { $inJob = true; $mbox = (int)$ji['box_id']; } else { $mbox = max(0, $pbox); }
+                }
+
+                if ($IS_OUT) {   // atomic: only subtracts when enough is left
+                    $up = mysqli_prepare($conn, "UPDATE items SET stock_qty = stock_qty - ? WHERE id = ? AND stock_qty >= ?");
+                    mysqli_stmt_bind_param($up, 'iii', $n, $id, $n); mysqli_stmt_execute($up);
+                    if (mysqli_stmt_affected_rows($up) < 1) throw new RuntimeException('Not enough stock for <b>' . $code . '</b>: only ' . (int)$item['stock_qty'] . ' left. Nothing was booked.');
+                } else {
+                    if ($pjob > 0) {   // returning: cannot return more than was sent to the job
+                        $st = mysqli_prepare($conn, "SELECT " . SENT_SQL . " AS s FROM stock_moves m WHERE m.item_id=? AND m.job_id=?");
+                        mysqli_stmt_bind_param($st, 'ii', $id, $pjob); mysqli_stmt_execute($st);
+                        $sent = (int)(mysqli_fetch_assoc(mysqli_stmt_get_result($st))['s'] ?? 0);
+                        if ($n > $sent) throw new RuntimeException('The job only has <b>' . $sent . '</b> of <b>' . $code . '</b> to return. Nothing was booked.');
+                    }
                     $up = mysqli_prepare($conn, "UPDATE items SET stock_qty = stock_qty + ? WHERE id = ?");
                     mysqli_stmt_bind_param($up, 'ii', $n, $id); mysqli_stmt_execute($up);
                 }
+
+                $src = $pjob > 0 ? 'job' : 'store'; $jp = $pjob > 0 ? $pjob : null; $bp = $mbox > 0 ? $mbox : null;
+                $lg = mysqli_prepare($conn, "INSERT INTO stock_moves (item_id,direction,source,job_id,box_id,qty,note) VALUES (?,?,?,?,?,?,?)");
+                $d = $IS_OUT ? 'out' : 'in';
+                mysqli_stmt_bind_param($lg, 'issiiis', $id, $d, $src, $jp, $bp, $n, $note); mysqli_stmt_execute($lg);
+
+                // item not on the job's list yet -> add it to the job list (and the chosen box)
+                if ($IS_OUT && $pjob > 0 && !$inJob) {
+                    try {
+                        $ji = mysqli_prepare($conn, "INSERT INTO job_items (job_id,item_id,qty,qty_per_tanker,production_units,after_qty,remark,box_id) VALUES (?,?,?,'1',0,?,'',?)");
+                        mysqli_stmt_bind_param($ji, 'iiiii', $pjob, $id, $n, $n, $mbox); mysqli_stmt_execute($ji);
+                    } catch (Throwable $e) { /* booking still counts even if the job list could not be extended */ }
+                }
+                $total += $n;
             }
-            if ($ok) {
-                $dir = $IS_OUT ? 'out' : 'in'; $src = $job > 0 ? 'job' : 'store'; $jp = $job > 0 ? $job : null;
-                $lg = mysqli_prepare($conn, "INSERT INTO stock_moves (item_id,direction,source,job_id,qty,note) VALUES (?,?,?,?,?,?)");
-                mysqli_stmt_bind_param($lg, 'issiis', $id, $dir, $src, $jp, $n, $note);
-                mysqli_stmt_execute($lg);
-                $left = (int)$item['stock_qty'] + ($IS_OUT ? -$n : $n);
-                $flash = ['success', ($IS_OUT ? 'Stock out' : 'Stock in') . ': <b>' . $n . '</b> × ' . h($item['item_code']) . ' — store now has <b>' . $left . '</b>.'];
-            }
+            mysqli_commit($conn);
+            $flash = ['success', ($IS_OUT ? 'Stock out' : 'Stock in') . ' booked: <b>' . count($lines) . '</b> item(s), <b>' . $total . '</b> pcs. Store quantities and the job report are updated.'];
+        } catch (Throwable $e) {
+            mysqli_rollback($conn);
+            $flash = ['danger', $e instanceof RuntimeException ? $e->getMessage() : 'Database error: ' . h($e->getMessage())];
         }
     }
     $_SESSION['flash'] = $flash;
-    header('Location: ' . $SELF . '?job=' . $job); exit;
+    header('Location: ' . $SELF . '?job=' . $pjob . ($box >= 0 ? '&box=' . $box : (isset($_POST['box_view']) ? '&box=' . (int)$_POST['box_view'] : ''))); exit;
 }
 $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
 
 // ---------- data for the page ----------
-$job = max(0, (int)($_GET['job'] ?? 0));
-$jobRow = null;
-if ($job > 0) { $r = mysqli_query($conn, "SELECT id,job_no,customer_name FROM jobs WHERE id=$job"); $jobRow = $r ? mysqli_fetch_assoc($r) : null; if (!$jobRow) $job = 0; }
+$jobsList = []; $jr = mysqli_query($conn, "SELECT id,job_no,customer_name,status FROM jobs ORDER BY id DESC LIMIT 500");
+while ($jr && $x = mysqli_fetch_assoc($jr)) $jobsList[] = ['id' => (int)$x['id'], 'job_no' => clean($x['job_no']), 'customer' => clean($x['customer_name']), 'status' => clean($x['status'])];
 
-// one box per job, with how many pieces it holds now
-$having = $IS_OUT ? '' : 'HAVING pcs > 0';
-$boxes = []; $br = mysqli_query($conn, "SELECT j.id, j.job_no, j.customer_name, " . BOX_SUM . " AS pcs
-    FROM jobs j LEFT JOIN stock_moves m ON m.job_id = j.id GROUP BY j.id, j.job_no, j.customer_name $having ORDER BY j.id DESC LIMIT 300");
-while ($br && $x = mysqli_fetch_assoc($br)) $boxes[] = $x;
-
-// what is inside the selected box
-$contents = [];
+$boxes = []; $boxName = [0 => 'No box']; $agg = []; $rows = [];
 if ($job > 0) {
-    $cr = mysqli_query($conn, "SELECT i.id,i.item_code,i.item_name,i.image,i.stock_qty, " . BOX_SUM . " AS box_qty
-        FROM stock_moves m JOIN items i ON i.id=m.item_id WHERE m.job_id=$job GROUP BY i.id,i.item_code,i.item_name,i.image,i.stock_qty
-        HAVING box_qty <> 0 ORDER BY i.item_code");
-    while ($cr && $x = mysqli_fetch_assoc($cr)) $contents[] = $x;
+    $br = mysqli_query($conn, "SELECT id,box_name FROM job_boxes WHERE job_id=$job ORDER BY box_name");
+    while ($br && $x = mysqli_fetch_assoc($br)) { $boxes[] = $x; $boxName[(int)$x['id']] = clean($x['box_name']); }
+    $ir = mysqli_query($conn, "SELECT ji.item_id,ji.qty AS need,ji.box_id,i.item_code,i.item_name,i.image,i.stock_qty,
+        COALESCE((SELECT " . SENT_SQL . " FROM stock_moves m WHERE m.job_id=ji.job_id AND m.item_id=ji.item_id),0) AS sent
+        FROM job_items ji JOIN items i ON i.id=ji.item_id WHERE ji.job_id=$job ORDER BY i.item_code");
+    while ($ir && $x = mysqli_fetch_assoc($ir)) {
+        $bid = (int)$x['box_id']; if (!isset($boxName[$bid])) $bid = 0;
+        $x['bid'] = $bid; $rows[] = $x;
+        foreach ([$bid, -1] as $k) { $agg[$k]['n'] = ($agg[$k]['n'] ?? 0) + 1; $agg[$k]['need'] = ($agg[$k]['need'] ?? 0) + (int)$x['need']; $agg[$k]['sent'] = ($agg[$k]['sent'] ?? 0) + (int)$x['sent']; }
+    }
 }
-$dirSql = $IS_OUT ? 'out' : 'in';
-$recent = mysqli_query($conn, "SELECT m.created_at,m.qty,m.note,i.item_code,i.item_name FROM stock_moves m JOIN items i ON i.id=m.item_id
-    WHERE m.direction='$dirSql' AND " . ($job > 0 ? "m.job_id=$job" : "m.job_id IS NULL") . " ORDER BY m.id DESC LIMIT 10");
+$shown = array_values(array_filter($rows, function ($x) use ($box, $IS_OUT) {
+    if ($box >= 0 && $x['bid'] !== $box) return false;
+    return $IS_OUT ? true : ((int)$x['sent'] > 0);
+}));
+$recent = mysqli_query($conn, "SELECT m.created_at,m.qty,m.note,i.item_code,i.item_name,b.box_name FROM stock_moves m JOIN items i ON i.id=m.item_id
+    LEFT JOIN job_boxes b ON b.id=m.box_id WHERE m.direction='$dirSql' AND $scopeSql ORDER BY m.id DESC LIMIT 15");
 
-$title   = $IS_OUT ? 'Stock Out' : 'Stock In';
-$color   = $IS_OUT ? 'danger' : 'success';
-$storeBox = $IS_OUT ? 'Store use (no job)' : 'New stock into store';
-$boxName  = $jobRow ? ('Job ' . clean($jobRow['job_no'])) : $storeBox;
+$title = $IS_OUT ? 'Stock Out' : 'Stock In';
+$color = $IS_OUT ? 'danger' : 'success';
+$storeLabel = $IS_OUT ? 'Store use (no job)' : 'New stock into store';
+$scopeName = $jobRow ? ('Job ' . clean($jobRow['job_no']) . ($box > 0 && isset($boxName[$box]) ? ' / ' . $boxName[$box] : '')) : $storeLabel;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -146,7 +200,6 @@ $boxName  = $jobRow ? ('Job ' . clean($jobRow['job_no'])) : $storeBox;
     <title>Warehouse - <?= $title ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         body { background:#f4f6f9; font-family:'Segoe UI', sans-serif; }
@@ -160,19 +213,14 @@ $boxName  = $jobRow ? ('Job ' . clean($jobRow['job_no'])) : $storeBox;
         .main { margin-left:260px; padding:20px; }
         .card { border:0; box-shadow:0 1px 3px rgba(0,0,0,.08); border-radius:10px; }
         .card-header { background:#fff; font-weight:600; border-bottom:1px solid #eef0f3; }
-        .box-grid { max-height:230px; overflow-y:auto; padding:2px; }
         .box-tile { display:block; height:100%; border:1px solid #dee2e6; border-radius:8px; padding:9px 12px; text-decoration:none; color:#212529; background:#fff; }
         .box-tile:hover { border-color:#f97316; color:#212529; }
         .box-tile.active { border-color:#f97316; background:#fff7ed; box-shadow:0 0 0 2px rgba(249,115,22,.25); }
-        .box-tile .nm { font-weight:700; font-size:14px; } .box-tile .cu { font-size:12px; color:#6c757d; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        #qr-reader { width:100%; max-width:380px; margin:0 auto; background:#111; border-radius:8px; overflow:hidden; }
-        #qr-reader video { width:100% !important; height:auto !important; }
+        .box-tile .nm { font-weight:700; font-size:14px; } .box-tile .cu { font-size:12px; color:#6c757d; }
         .ac { position:absolute; z-index:60; background:#fff; border:1px solid #cbd5e1; border-radius:8px; width:100%; max-height:340px; overflow:auto; display:none; box-shadow:0 8px 20px rgba(0,0,0,.15); top:100%; left:0; }
         .ac div { display:flex; gap:10px; align-items:center; padding:7px 10px; cursor:pointer; font-size:13px; }
         .ac div:hover { background:#fff7ed; } .ac img, .thumb { width:40px; height:40px; object-fit:contain; background:#fff; border:1px solid #e2e8f0; border-radius:6px; }
-        .picked { display:none; align-items:center; gap:14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; margin-bottom:14px; }
-        .picked img { width:64px; height:64px; object-fit:contain; background:#fff; border:1px solid #e2e8f0; border-radius:8px; }
-        tr.pick-row { cursor:pointer; } tr.pick-row:hover { background:#fff7ed; }
+        .qty-in { width:80px; text-align:center; font-weight:700; }
         @media(max-width:768px){ .sidebar{display:none} .main{margin-left:0;padding:10px} }
     </style>
 </head>
@@ -187,7 +235,7 @@ $boxName  = $jobRow ? ('Job ' . clean($jobRow['job_no'])) : $storeBox;
             <a href="../import_excel.php"><i class="fa-solid fa-file-import"></i> Import Excel</a>
             <a href="../create_job.php"><i class="fa-solid fa-file-circle-plus"></i> Create Job</a>
             <a href="../job_list.php"><i class="fa-solid fa-file-lines"></i> Job List</a>
-            <a href="../stock/stock_in.php"<?= !$IS_OUT ? ' class="active"' : '' ?>><i class="fa-solid fa-arrow-trend-up"></i> Stock In</a>
+            <a href="../items/stock_in.php"<?= !$IS_OUT ? ' class="active"' : '' ?>><i class="fa-solid fa-arrow-trend-up"></i> Stock In</a>
             <a href="../items/stock_out.php"<?= $IS_OUT ? ' class="active"' : '' ?>><i class="fa-solid fa-arrow-trend-down"></i> Stock Out</a>
             <a href="../return_item.php"><i class="fa-solid fa-rotate-left"></i> Returns</a>
             <a href="../stock/missing_item.php"><i class="fa-solid fa-triangle-exclamation"></i> Missing</a>
@@ -200,209 +248,202 @@ $boxName  = $jobRow ? ('Job ' . clean($jobRow['job_no'])) : $storeBox;
     <div class="main">
         <div class="card mb-3"><div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-2">
             <h4 class="m-0 fw-bold text-<?= $color ?>"><i class="fa-solid fa-arrow-trend-<?= $IS_OUT ? 'down' : 'up' ?> me-2"></i><?= $title ?></h4>
-            <span class="text-muted small"><?= $IS_OUT ? 'Put items into a job box, or take them out for store use.' : 'Receive new stock, or return items from a job box back to the store.' ?></span>
+            <a class="btn btn-outline-success btn-sm" href="?export=1&job=<?= $job ?><?= $box > 0 ? '&box=' . $box : '' ?>"><i class="fa-solid fa-file-excel me-1"></i> Export <?= strtolower($title) ?> list (Excel)</a>
         </div></div>
 
         <?php if ($flash): ?>
             <div class="alert alert-<?= $flash[0] ?> alert-dismissible fade show"><?= $flash[1] ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
         <?php endif; ?>
 
-        <!-- 1. choose the box -->
+        <!-- 1. job and box -->
+        <div class="card mb-3">
+            <div class="card-header"><i class="fa-solid fa-box me-1"></i> 1. Choose the job and its box</div>
+            <div class="card-body">
+                <div class="row g-2 align-items-start mb-2">
+                    <div class="col-md-6"><div class="input-group position-relative">
+                        <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+                        <input type="text" id="jobSearch" class="form-control" placeholder="Type job no / customer to find a job..." autocomplete="off">
+                        <div class="ac" id="jobAc"></div></div></div>
+                    <div class="col-md-6 d-flex flex-wrap gap-2 align-items-center">
+                        <a class="btn btn-sm <?= $job === 0 ? 'btn-warning' : 'btn-outline-secondary' ?>" href="?job=0"><i class="fa-solid fa-warehouse me-1"></i><?= h($storeLabel) ?></a>
+                        <?php if ($jobRow): ?><span class="fw-semibold">Selected: <span class="text-warning">Job <?= h($jobRow['job_no']) ?></span> <span class="text-muted small"><?= h($jobRow['customer_name']) ?></span></span><?php endif; ?>
+                    </div>
+                </div>
+                <?php if ($job > 0): ?>
+                <div class="row g-2 mt-1">
+                    <div class="col-6 col-md-4 col-xl-3"><a class="box-tile<?= $box === -1 ? ' active' : '' ?>" href="?job=<?= $job ?>&box=-1">
+                        <div class="nm"><i class="fa-solid fa-layer-group text-secondary me-1"></i>All items</div>
+                        <div class="cu"><?= (int)($agg[-1]['n'] ?? 0) ?> items · sent <?= (int)($agg[-1]['sent'] ?? 0) ?> / <?= (int)($agg[-1]['need'] ?? 0) ?></div></a></div>
+                    <?php foreach ($boxes as $b): $bid = (int)$b['id']; ?>
+                    <div class="col-6 col-md-4 col-xl-3"><a class="box-tile<?= $box === $bid ? ' active' : '' ?>" href="?job=<?= $job ?>&box=<?= $bid ?>">
+                        <div class="nm"><i class="fa-solid fa-box-open text-warning me-1"></i><?= h($b['box_name']) ?></div>
+                        <div class="cu"><?= (int)($agg[$bid]['n'] ?? 0) ?> items · sent <?= (int)($agg[$bid]['sent'] ?? 0) ?> / <?= (int)($agg[$bid]['need'] ?? 0) ?></div></a></div>
+                    <?php endforeach; if (!empty($agg[0])): ?>
+                    <div class="col-6 col-md-4 col-xl-3"><a class="box-tile<?= $box === 0 ? ' active' : '' ?>" href="?job=<?= $job ?>&box=0">
+                        <div class="nm"><i class="fa-regular fa-square text-secondary me-1"></i>No box</div>
+                        <div class="cu"><?= (int)$agg[0]['n'] ?> items · sent <?= (int)$agg[0]['sent'] ?> / <?= (int)$agg[0]['need'] ?></div></a></div>
+                    <?php endif; ?>
+                </div>
+                <?php if (!$boxes): ?><div class="small text-muted mt-2">This job has no boxes yet. Make them in Job List (View &amp; Manage Job Boxes).</div><?php endif; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- 2. items of the job / box -->
         <div class="card mb-3">
             <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <span><i class="fa-solid fa-box me-1"></i> 1. Choose the box</span>
-                <input type="text" id="boxFilter" class="form-control form-control-sm" style="max-width:240px" placeholder="Find job no / customer...">
+                <span><i class="fa-solid fa-list-check me-1"></i> 2. <?= $job > 0 ? ($IS_OUT ? 'Items on the job list — press Add' : 'Items sent to this job — press Add to return') : 'Find the items' ?></span>
             </div>
-            <div class="card-body box-grid"><div class="row g-2" id="boxRow">
-                <div class="col-6 col-md-4 col-xl-3"><a class="box-tile<?= $job === 0 ? ' active' : '' ?>" href="?job=0">
-                    <div class="nm"><i class="fa-solid fa-warehouse text-secondary me-1"></i><?= h($storeBox) ?></div><div class="cu"><?= $IS_OUT ? 'Not for any job' : 'Purchases / new arrivals' ?></div></a></div>
-                <?php foreach ($boxes as $b): ?>
-                <div class="col-6 col-md-4 col-xl-3 box-item" data-t="<?= h(strtolower($b['job_no'] . ' ' . $b['customer_name'])) ?>">
-                    <a class="box-tile<?= $job === (int)$b['id'] ? ' active' : '' ?>" href="?job=<?= (int)$b['id'] ?>">
-                        <div class="nm"><i class="fa-solid fa-box-open text-warning me-1"></i><?= h($b['job_no']) ?> <span class="badge bg-dark float-end"><?= (int)$b['pcs'] ?> pcs</span></div>
-                        <div class="cu"><?= h($b['customer_name']) ?: '—' ?></div></a></div>
-                <?php endforeach; if (!$IS_OUT && !$boxes) echo "<div class='col-12 text-muted small'>No job box holds any items yet, so there is nothing to return.</div>"; ?>
-            </div></div>
-        </div>
-
-        <div class="row g-3">
-            <div class="col-lg-5">
-                <div class="card h-100">
-                    <div class="card-header"><i class="fa-solid fa-camera me-1"></i> Scan label</div>
-                    <div class="card-body text-center">
-                        <div id="qr-reader"></div>
-                        <div id="scan-msg" class="mt-2 small fw-semibold"></div>
-                        <button class="btn btn-outline-secondary btn-sm mt-2 w-100" onclick="switchCamera()"><i class="fa-solid fa-camera-rotate"></i> Switch camera</button>
-                        <div class="text-muted my-2 small">or take / choose a photo of the label</div>
-                        <input type="file" accept="image/*" capture="environment" id="file-selector" class="form-control form-control-sm">
-                        <div id="file-tmp" style="display:none"></div>
-                    </div>
+            <div class="card-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-8"><div class="input-group position-relative">
+                        <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+                        <input type="text" id="search" class="form-control" placeholder="Type part no / description / barcode to add any other item..." autocomplete="off">
+                        <div class="ac" id="acb"></div></div></div>
+                    <div class="col-md-4"><div class="input-group"><span class="input-group-text">Qty</span>
+                        <input type="number" id="addq" class="form-control text-center fw-bold" min="1" value="1"></div></div>
                 </div>
-            </div>
-
-            <div class="col-lg-7">
-                <div class="card h-100">
-                    <div class="card-header"><i class="fa-solid fa-pen-to-square me-1"></i> 2. Find item and book it into: <span class="text-<?= $color ?>"><?= h($boxName) ?></span></div>
-                    <div class="card-body">
-                        <div class="input-group position-relative mb-3">
-                            <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
-                            <input type="text" id="search" class="form-control" placeholder="Type part no / description / barcode..." autocomplete="off">
-                            <div class="ac" id="acb"></div>
-                        </div>
-
-                        <div class="picked" id="picked">
-                            <img id="p-img" src="" alt="">
-                            <div class="flex-grow-1">
-                                <div class="fw-bold text-primary" id="p-code"></div>
-                                <div class="small text-uppercase" id="p-name"></div>
-                                <div class="small mt-1">Store stock: <b id="p-stock">0</b> → <b id="p-after">0</b>
-                                    <?php if ($job > 0): ?> &nbsp;|&nbsp; In this box: <b id="p-box">0</b><?php endif; ?></div>
-                            </div>
-                        </div>
-
-                        <form method="POST">
-                            <input type="hidden" name="item_identifier" id="item_identifier">
-                            <input type="hidden" name="job_id" value="<?= $job ?>">
-                            <div class="row g-2 mb-3">
-                                <div class="col-sm-4">
-                                    <label class="form-label small fw-semibold">Quantity</label>
-                                    <input type="number" name="qty" id="qty" class="form-control text-center fw-bold" min="1" value="1" required>
-                                </div>
-                                <div class="col-sm-8">
-                                    <label class="form-label small fw-semibold">Note (optional)</label>
-                                    <input type="text" name="note" class="form-control" placeholder="e.g. who took it">
-                                </div>
-                            </div>
-                            <button type="submit" name="book" id="btnBook" class="btn btn-<?= $color ?> w-100 py-2 fw-semibold" disabled>
-                                <?= $IS_OUT ? 'Book Stock Out' : ($job > 0 ? 'Return to Store' : 'Book Stock In') ?></button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- what is in the box -->
-        <?php if ($job > 0): ?>
-        <div class="card mt-3">
-            <div class="card-header"><i class="fa-solid fa-boxes-stacked me-1"></i> Inside <?= h($boxName) ?> <span class="text-muted fw-normal small">(click a row to pick that item)</span></div>
-            <div class="table-responsive"><table class="table table-sm align-middle mb-0">
-                <thead class="table-light"><tr><th style="width:60px">Image</th><th>Part No</th><th>Description</th><th class="text-end">In box</th></tr></thead><tbody>
-                <?php foreach ($contents as $c): $img = itemImage($c['image'], $c['item_code']);
-                    $data = ['id' => (int)$c['id'], 'item_code' => clean($c['item_code']), 'item_name' => clean($c['item_name']), 'stock_qty' => (int)$c['stock_qty'], 'box_qty' => (int)$c['box_qty'], 'img' => $img]; ?>
-                    <tr class="pick-row" data-item="<?= htmlspecialchars(json_encode($data), ENT_QUOTES) ?>">
+                <?php if ($job > 0): ?>
+                <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+                    <thead class="table-light"><tr><th style="width:56px">Image</th><th>Part No</th><th>Description</th><th>Box</th>
+                        <th class="text-end"><?= $IS_OUT ? 'Job qty' : 'Sent' ?></th>
+                        <?php if ($IS_OUT): ?><th class="text-end">Sent</th><th class="text-end">Left</th><?php endif; ?>
+                        <th class="text-end">Store</th><th style="width:100px">Qty</th><th style="width:70px"></th></tr></thead><tbody>
+                    <?php foreach ($shown as $r):
+                        $img = itemImage($r['image'], $r['item_code']); $need = (int)$r['need']; $sent = (int)$r['sent']; $left = $need - $sent; $stock = (int)$r['stock_qty'];
+                        $data = ['id' => (int)$r['item_id'], 'item_code' => clean($r['item_code']), 'item_name' => clean($r['item_name']), 'stock_qty' => $stock, 'sent' => $sent, 'img' => $img];
+                        $def = $IS_OUT ? max(1, min($left, $stock)) : max(1, $sent); ?>
+                    <tr data-item="<?= htmlspecialchars(json_encode($data), ENT_QUOTES) ?>">
                         <td><?php if ($img): ?><img class="thumb" loading="lazy" src="<?= h($img) ?>" onerror="this.style.visibility='hidden'"><?php endif; ?></td>
-                        <td class="fw-semibold text-primary"><?= h($c['item_code']) ?></td><td class="text-uppercase small"><?= h($c['item_name']) ?></td>
-                        <td class="text-end fw-bold"><?= (int)$c['box_qty'] ?></td></tr>
-                <?php endforeach; if (!$contents) echo "<tr><td colspan='4' class='text-center text-muted py-3'>This box is empty.</td></tr>"; ?>
-                </tbody></table></div>
+                        <td class="fw-semibold text-primary"><?= h($r['item_code']) ?></td><td class="small text-uppercase"><?= h($r['item_name']) ?></td>
+                        <td class="small"><?= h($boxName[$r['bid']] ?? 'No box') ?></td>
+                        <td class="text-end"><?= $IS_OUT ? $need : $sent ?></td>
+                        <?php if ($IS_OUT): ?><td class="text-end"><?= $sent ?></td><td class="text-end fw-bold <?= $left <= 0 ? 'text-success' : 'text-danger' ?>"><?= $left ?></td><?php endif; ?>
+                        <td class="text-end <?= $stock <= 0 ? 'text-danger fw-bold' : '' ?>"><?= $stock ?></td>
+                        <td><input type="number" class="form-control form-control-sm qty-in row-qty" min="1" value="<?= $def ?>"></td>
+                        <td><button type="button" class="btn btn-sm btn-<?= $color ?> row-add"><i class="fa-solid fa-plus"></i> Add</button></td></tr>
+                    <?php endforeach; if (!$shown) echo "<tr><td colspan='10' class='text-center text-muted py-3'>" . ($IS_OUT ? 'No items here yet. Search above to add one.' : 'Nothing has been sent to this job (or box) yet.') . "</td></tr>"; ?>
+                    </tbody></table></div>
+                <?php else: ?>
+                    <div class="text-muted small"><?= $IS_OUT ? 'Store use: search an item above and add it to the list.' : 'Search the items that arrived and add them to the list.' ?> To work with a job box, pick a job first.</div>
+                <?php endif; ?>
+            </div>
         </div>
-        <?php endif; ?>
+
+        <!-- 3. the book list -->
+        <div class="card mb-3">
+            <div class="card-header"><i class="fa-solid fa-cart-flatbed me-1"></i> 3. Book list for <span class="text-<?= $color ?>"><?= h($scopeName) ?></span></div>
+            <div class="card-body">
+                <div id="cartMsg" class="small mb-2"></div>
+                <div class="table-responsive"><table class="table table-sm align-middle">
+                    <thead class="table-light"><tr><th style="width:56px">Image</th><th>Part No</th><th>Description</th><th class="text-end">Store</th><th style="width:100px">Qty</th><th style="width:50px"></th></tr></thead>
+                    <tbody id="cartBody"></tbody></table></div>
+                <form method="POST" id="bookForm" class="row g-2 align-items-end">
+                    <input type="hidden" name="job_id" value="<?= $job ?>">
+                    <input type="hidden" name="box_id" value="<?= max(0, $box) ?>">
+                    <input type="hidden" name="box_view" value="<?= $box ?>">
+                    <input type="hidden" name="cart_json" id="cart_json">
+                    <div class="col-md-7"><label class="form-label small fw-semibold mb-1">Note (optional)</label><input type="text" name="note" class="form-control" placeholder="e.g. who took it"></div>
+                    <div class="col-md-5"><button type="submit" name="book_all" id="btnBook" class="btn btn-<?= $color ?> w-100 fw-semibold" disabled>Book all</button></div>
+                </form>
+            </div>
+        </div>
 
         <!-- recent -->
-        <div class="card mt-3 mb-4">
-            <div class="card-header"><i class="fa-regular fa-clock me-1"></i> Recent <?= strtolower($title) ?> — <?= h($boxName) ?></div>
+        <div class="card mb-4">
+            <div class="card-header"><i class="fa-regular fa-clock me-1"></i> Recent <?= strtolower($title) ?> — <?= h($scopeName) ?></div>
             <div class="table-responsive"><table class="table table-sm mb-0">
-                <thead class="table-light"><tr><th>Date / time</th><th>Part No</th><th>Description</th><th class="text-end">Qty</th><th>Note</th></tr></thead><tbody>
+                <thead class="table-light"><tr><th>Date / time</th><th>Box</th><th>Part No</th><th>Description</th><th class="text-end">Qty</th><th>Note</th></tr></thead><tbody>
                 <?php $n = 0; while ($recent && $r = mysqli_fetch_assoc($recent)): $n++; ?>
-                    <tr><td class="small"><?= date('d M Y H:i', strtotime($r['created_at'])) ?></td><td class="fw-semibold"><?= h($r['item_code']) ?></td>
+                    <tr><td class="small"><?= date('d M Y H:i', strtotime($r['created_at'])) ?></td><td class="small"><?= h($r['box_name'] ?? '-') ?></td><td class="fw-semibold"><?= h($r['item_code']) ?></td>
                         <td class="small text-uppercase"><?= h($r['item_name']) ?></td><td class="text-end fw-bold"><?= (int)$r['qty'] ?></td><td class="small"><?= h($r['note']) ?></td></tr>
-                <?php endwhile; if (!$n) echo "<tr><td colspan='5' class='text-center text-muted py-3'>Nothing booked here yet.</td></tr>"; ?>
+                <?php endwhile; if (!$n) echo "<tr><td colspan='6' class='text-center text-muted py-3'>Nothing booked here yet.</td></tr>"; ?>
                 </tbody></table></div>
         </div>
     </div>
 
     <script>
         const SELF = location.pathname, IS_OUT = <?= json_encode($IS_OUT) ?>, JOB = <?= (int)$job ?>;
-        let selected = null, lastScan = 0, timer;
+        const KEY = 'cart_' + (IS_OUT ? 'out' : 'in') + '_' + JOB;
+        const JOBS = <?= json_encode($jobsList) ?>;
         const $ = id => document.getElementById(id);
-        const PH = 'data:image/svg+xml,' + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><rect width='64' height='64' fill='#f1f5f9'/></svg>");
+        const PH = 'data:image/svg+xml,' + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><rect width='40' height='40' fill='#f1f5f9'/></svg>");
+        const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-        // filter the job boxes
-        $('boxFilter').addEventListener('input', e => {
-            const v = e.target.value.toLowerCase();
-            document.querySelectorAll('.box-item').forEach(b => b.style.display = b.dataset.t.includes(v) ? '' : 'none');
+        if (<?= json_encode(!empty($flash) && $flash[0] === 'success') ?>) sessionStorage.removeItem(KEY);   // a successful booking empties the list
+        let cart = []; try { cart = JSON.parse(sessionStorage.getItem(KEY) || '[]'); } catch (e) {}
+
+        function maxFor(it) { return IS_OUT ? it.stock_qty : (JOB > 0 ? it.sent : Infinity); }
+        function say(msg, cls) { $('cartMsg').innerHTML = msg ? '<span class="text-' + (cls || 'danger') + '">' + msg + '</span>' : ''; }
+        function save() { sessionStorage.setItem(KEY, JSON.stringify(cart)); render(); }
+
+        function addToCart(it, qty) {
+            qty = parseInt(qty) || 1; const max = maxFor(it); const ex = cart.find(c => c.id === it.id);
+            let n = (ex ? ex.qty : 0) + qty; say('');
+            if (n > max) { n = max; say((IS_OUT ? 'Only ' + max + ' in store' : 'Only ' + max + ' sent to this job') + ' for ' + esc(it.item_code) + '.'); }
+            if (n <= 0) { say(esc(it.item_code) + ': none available.'); return; }
+            if (ex) { ex.qty = n; ex.stock_qty = it.stock_qty; ex.sent = it.sent; } else cart.push({ id: it.id, item_code: it.item_code, item_name: it.item_name, img: it.img, stock_qty: it.stock_qty, sent: it.sent, qty: n });
+            save();
+        }
+        function render() {
+            const body = $('cartBody');
+            if (!cart.length) body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">The list is empty. Add items from the table above or search for an item.</td></tr>';
+            else body.innerHTML = cart.map((c, i) => `<tr>
+                <td><img class="thumb" src="${esc(c.img || PH)}" onerror="this.onerror=null;this.src=PH"></td>
+                <td class="fw-semibold text-primary">${esc(c.item_code)}</td><td class="small text-uppercase">${esc(c.item_name)}</td>
+                <td class="text-end">${c.stock_qty}</td>
+                <td><input type="number" class="form-control form-control-sm qty-in" min="1" value="${c.qty}" onchange="setQty(${i}, this.value)"></td>
+                <td><button type="button" class="btn btn-sm text-danger" onclick="removeLine(${i})"><i class="fa-solid fa-xmark"></i></button></td></tr>`).join('');
+            const pcs = cart.reduce((s, c) => s + c.qty, 0);
+            $('btnBook').disabled = !cart.length;
+            $('btnBook').textContent = cart.length ? 'Book all (' + cart.length + ' item' + (cart.length > 1 ? 's' : '') + ', ' + pcs + ' pcs)' : 'Book all';
+        }
+        function setQty(i, v) {
+            const c = cart[i], max = maxFor(c); let n = parseInt(v) || 1; say('');
+            if (n > max) { n = max; say('Limited to ' + max + ' for ' + esc(c.item_code) + '.'); }
+            c.qty = Math.max(1, n); save();
+        }
+        function removeLine(i) { cart.splice(i, 1); save(); }
+        $('bookForm').addEventListener('submit', e => {
+            if (!cart.length) { e.preventDefault(); return; }
+            if (!confirm('Book ' + cart.length + ' item(s) for <?= addslashes(h($scopeName)) ?>?')) { e.preventDefault(); return; }
+            $('cart_json').value = JSON.stringify(cart.map(c => ({ id: c.id, qty: c.qty })));
+            sessionStorage.removeItem(KEY);
         });
 
-        // The label QR holds a link (...public_item_view.php?code=XXXX). Take the code out of it;
-        // plain barcodes and typed codes are used as they are.
-        function codeFrom(text) {
-            text = (text || '').trim();
-            try { const u = new URL(text); const c = u.searchParams.get('code') || u.searchParams.get('codes[]'); if (c) return c; } catch (e) {}
-            return text;
-        }
+        // "Add" buttons on the job / box items table
+        document.querySelectorAll('tr[data-item]').forEach(tr => {
+            const it = JSON.parse(tr.dataset.item), q = tr.querySelector('.row-qty');
+            tr.querySelector('.row-add').addEventListener('click', () => addToCart(it, q.value));
+        });
 
-        function maxQty() { return IS_OUT ? selected.stock_qty : (JOB > 0 ? selected.box_qty : Infinity); }
-        function selectItem(it) {
-            selected = it;
-            $('item_identifier').value = it.item_code; $('search').value = it.item_code; $('acb').style.display = 'none';
-            $('p-img').src = it.img || PH; $('p-code').textContent = it.item_code; $('p-name').textContent = it.item_name;
-            $('p-stock').textContent = it.stock_qty; if ($('p-box')) $('p-box').textContent = it.box_qty;
-            $('picked').style.display = 'flex';
-            const m = maxQty(); if (m !== Infinity) $('qty').max = m; else $('qty').removeAttribute('max');
-            if (m <= 0) $('scan-msg').innerHTML = '<span class="text-danger">' + (IS_OUT ? 'No stock left for this item.' : 'This box holds none of this item.') + '</span>';
-            update(); $('qty').focus(); $('qty').select();
-        }
-        function update() {
-            if (!selected) return;
-            const n = parseInt($('qty').value) || 0, after = selected.stock_qty + (IS_OUT ? -n : n);
-            $('p-after').textContent = after; $('p-after').className = (IS_OUT && after < 0) ? 'text-danger' : 'text-success';
-            $('btnBook').disabled = !(n > 0 && n <= maxQty());
-        }
-        $('qty').addEventListener('input', update);
-
-        // click an item inside the box table
-        document.querySelectorAll('.pick-row').forEach(r => r.addEventListener('click', () => { selectItem(JSON.parse(r.dataset.item)); window.scrollTo({ top: 0, behavior: 'smooth' }); }));
-
-        function searchItems(q) { return fetch(SELF + '?a=search&job=' + JOB + '&q=' + encodeURIComponent(q)).then(r => r.json()); }
-
-        // every letter typed -> matching items appear
-        $('search').addEventListener('input', () => {
-            clearTimeout(timer);
-            selected = null; $('btnBook').disabled = true; $('picked').style.display = 'none';
-            timer = setTimeout(() => {
-                const v = $('search').value.trim(), box = $('acb');
-                if (!v) { box.style.display = 'none'; return; }
-                searchItems(v).then(list => {
-                    box.innerHTML = '';
-                    if (!list.length) box.innerHTML = '<div class="text-muted">No matching items</div>';
-                    list.forEach(it => {
-                        const d = document.createElement('div');
-                        d.innerHTML = `<img src="${it.img || PH}" onerror="this.onerror=null;this.src=PH"><span><b>${it.item_code}</b> — ${it.item_name} <small class="text-muted">(stock ${it.stock_qty})</small></span>`;
-                        d.onclick = () => selectItem(it); box.appendChild(d);
+        // find any item: every letter shows matches
+        let timer;
+        function bindSearch(inp, box, fetchUrl, render, pick) {
+            inp.addEventListener('input', () => {
+                clearTimeout(timer);
+                timer = setTimeout(() => {
+                    const v = inp.value.trim(); if (!v) { box.style.display = 'none'; return; }
+                    fetchUrl(v).then(list => {
+                        box.innerHTML = list.length ? '' : '<div class="text-muted">No matches</div>';
+                        list.forEach(x => { const d = document.createElement('div'); d.innerHTML = render(x); d.onclick = () => { box.style.display = 'none'; pick(x); }; box.appendChild(d); });
+                        box.style.display = 'block';
                     });
-                    box.style.display = 'block';
-                });
-            }, 150);
-        });
-        $('search').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const f = $('acb').querySelector('div'); if (f && f.onclick) f.onclick(); } });
-        document.addEventListener('click', e => { if (!$('acb').contains(e.target) && e.target !== $('search')) $('acb').style.display = 'none'; });
-
-        // ---- scanner ----
-        function handleScanned(text) {
-            const code = codeFrom(text);
-            $('scan-msg').innerHTML = '<span class="text-success">Scanned: ' + code.replace(/</g, '&lt;') + '</span>';
-            searchItems(code).then(list => {
-                const lc = code.toLowerCase();
-                const hit = list.find(i => i.item_code.toLowerCase() === lc || (i.barcode || '').toLowerCase() === lc);
-                if (hit) selectItem(hit); else $('scan-msg').innerHTML = '<span class="text-danger">No item found for "' + code.replace(/</g, '&lt;') + '"</span>';
+                }, 150);
             });
+            inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const f = box.querySelector('div'); if (f && f.onclick) f.onclick(); } });
+            document.addEventListener('click', e => { if (!box.contains(e.target) && e.target !== inp) box.style.display = 'none'; });
         }
-        function onScanSuccess(text) { const now = Date.now(); if (now - lastScan < 2000) return; lastScan = now; if (navigator.vibrate) navigator.vibrate(100); handleScanned(text); }
-        let qr, facing = 'environment';
-        function startScanner() {
-            const go = () => {
-                qr = new Html5Qrcode('qr-reader');
-                qr.start({ facingMode: facing }, { fps: 15, qrbox: { width: 260, height: 200 } }, onScanSuccess, () => {})
-                  .catch(() => { $('scan-msg').innerHTML = '<span class="text-warning">Camera not available here (needs HTTPS). Use the photo option or type the code.</span>'; });
-            };
-            if (qr && qr.isScanning) qr.stop().then(go).catch(go); else go();
-        }
-        function switchCamera() { facing = facing === 'environment' ? 'user' : 'environment'; startScanner(); }
-        $('file-selector').addEventListener('change', e => {
-            if (!e.target.files.length) return;
-            new Html5Qrcode('file-tmp').scanFile(e.target.files[0], true).then(handleScanned).catch(() => alert('Could not read a code from that photo. Try a clearer, closer photo.'));
-        });
-        window.addEventListener('DOMContentLoaded', startScanner);
+        bindSearch($('search'), $('acb'),
+            v => fetch(SELF + '?a=search&job=' + JOB + '&q=' + encodeURIComponent(v)).then(r => r.json()),
+            it => `<img src="${esc(it.img || PH)}" onerror="this.onerror=null;this.src=PH"><span><b>${esc(it.item_code)}</b> — ${esc(it.item_name)} <small class="text-muted">(store ${it.stock_qty})</small></span>`,
+            it => { addToCart(it, $('addq').value); $('search').value = ''; $('search').focus(); });
+        bindSearch($('jobSearch'), $('jobAc'),
+            v => Promise.resolve(JOBS.filter(j => (j.job_no + ' ' + j.customer).toLowerCase().includes(v.toLowerCase())).slice(0, 12)),
+            j => `<span><b>${esc(j.job_no)}</b> <small class="text-muted">${esc(j.customer)} · ${esc(j.status)}</small></span>`,
+            j => { location.href = SELF + '?job=' + j.id; });
+
+        render();
     </script>
 </body>
 </html>
