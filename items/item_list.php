@@ -406,7 +406,7 @@ $result = $stmt->get_result();
             <a href="../job_list.php">
                 <i class="fa-solid fa-file-lines"></i> Job List
             </a>
-            <a href="../stock/stock_in.php">
+            <a href="../items/stock_in.php">
                 <i class="fa-solid fa-arrow-trend-up"></i> Stock In
             </a>
             <a href="stock_out.php">
